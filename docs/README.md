@@ -178,8 +178,7 @@ testdata/
 ├── conformance/       # Downloaded test suites
 │   ├── kodak/        # Kodak Image Suite
 │   ├── pngsuite/     # PNG edge cases
-│   ├── webp/         # WebP gallery
-│   └── testimages/   # Standard test images
+│   └── webp/         # WebP gallery
 └── golden/           # Expected outputs (version snapshots)
 ```
 

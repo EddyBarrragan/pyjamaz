@@ -249,11 +249,10 @@ pyjamaz/
 - Core functionality: 100% coverage
 - Memory leak testing: All tests use `testing.allocator`
 
-**Conformance Tests**: 208/208 passing (100%)
+**Conformance Tests**: 205/205 passing (100%)
 - PNGSuite: 161/161 passing (100%)
 - Kodak: 24/24 skipped (placeholder files)
 - WebP Gallery: 5/5 passing (100%)
-- testimages: 3/3 skipped (invalid format)
 
 **Integration Tests**: 8 tests via conformance runner
 - End-to-end pipeline validation

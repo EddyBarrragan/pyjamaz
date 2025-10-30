@@ -56,16 +56,8 @@ pub fn encodeImage(
     const encoded = try switch (format) {
         .jpeg => vips_img.saveAsJPEG(allocator, quality),
         .png => vips_img.saveAsPNG(allocator, @min(quality, 9)),
-        .webp => {
-            // TODO: Add WebP encoding when vips_webpsave_buffer is bound
-            std.debug.print("WebP encoding not yet implemented\n", .{});
-            return CodecError.UnsupportedFormat;
-        },
-        .avif => {
-            // TODO: Add AVIF encoding when vips_avifsave_buffer is bound
-            std.debug.print("AVIF encoding not yet implemented\n", .{});
-            return CodecError.UnsupportedFormat;
-        },
+        .webp => vips_img.saveAsWebP(allocator, quality),
+        .avif => vips_img.saveAsAVIF(allocator, quality),
         .unknown => CodecError.UnsupportedFormat,
     };
 
@@ -79,7 +71,7 @@ pub fn encodeImage(
         return CodecError.EncodeFailed;
     }
 
-    // Verify magic numbers (already done in vips.zig saveAsJPEG/saveAsPNG)
+    // Verify magic numbers (already done in vips.zig save methods)
     // But we add extra verification here for defense in depth
     switch (format) {
         .jpeg => {
@@ -90,6 +82,18 @@ pub fn encodeImage(
             std.debug.assert(encoded.len >= 8);
             std.debug.assert(encoded[0] == 0x89); // PNG signature
             std.debug.assert(encoded[1] == 0x50 and encoded[2] == 0x4E and encoded[3] == 0x47);
+        },
+        .webp => {
+            std.debug.assert(encoded.len >= 12);
+            std.debug.assert(encoded[0] == 0x52 and encoded[1] == 0x49); // "RI"
+            std.debug.assert(encoded[2] == 0x46 and encoded[3] == 0x46); // "FF" (RIFF)
+            std.debug.assert(encoded[8] == 0x57 and encoded[9] == 0x45); // "WE"
+            std.debug.assert(encoded[10] == 0x42 and encoded[11] == 0x50); // "BP" (WEBP)
+        },
+        .avif => {
+            std.debug.assert(encoded.len >= 12);
+            std.debug.assert(encoded[4] == 0x66 and encoded[5] == 0x74); // "ft"
+            std.debug.assert(encoded[6] == 0x79 and encoded[7] == 0x70); // "yp" (ftyp box)
         },
         else => {},
     }

@@ -1,5 +1,12 @@
 //! Conformance test root - provides main() for conformance runner
 
+const std = @import("std");
+
+// Enable debug logging for conformance tests
+pub const std_options: std.Options = .{
+    .log_level = .debug,
+};
+
 // Re-export modules for conformance tests
 pub const optimizer = @import("optimizer.zig");
 pub const output = @import("output.zig");

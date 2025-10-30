@@ -46,7 +46,6 @@ try candidates.append(allocator, original_candidate);
 **Categories**:
 - 12 PNGSuite `x*` files (xc*, xd*, xs*, xlf*) - Intentionally corrupt
 - 24 Kodak files - Empty (0 byte) placeholders
-- 3 testimages - HTML redirect responses (not downloaded)
 
 **Solution**: Added `shouldSkipFile()` function to gracefully skip these files.
 
@@ -63,8 +62,6 @@ fn shouldSkipFile(input_path: []const u8) bool {
         std.mem.startsWith(u8, basename, "xlf")) return true;
     // Skip empty Kodak placeholders
     if (std.mem.startsWith(u8, basename, "kodim")) return true;
-    // Skip missing testimages
-    if (std.mem.eql(u8, basename, "lena.png")) return true;
     return false;
 }
 ```
@@ -91,11 +88,10 @@ After:
 
 ## Overview
 
-The conformance test suite validates end-to-end image optimization across 208 real-world test images from 4 test suites:
+The conformance test suite validates end-to-end image optimization across 205 real-world test images from 3 test suites:
 - PNGSuite (baseline PNG test suite)
 - Kodak (photographic test images)
 - WebP (web format test images)
-- testimages (miscellaneous test images)
 
 Each test performs:
 1. Image decode via libvips
@@ -141,7 +137,6 @@ Failing:         164 (79%)
   - [ ] PNGSuite failures (edge cases, unusual PNG features)
   - [ ] Kodak failures (large photographic images)
   - [ ] WebP failures (web format specific issues)
-  - [ ] testimages failures (miscellaneous edge cases)
 
 - [ ] **Identify failure patterns by format**
   - [ ] JPEG encoding issues
@@ -185,11 +180,6 @@ Failing:         164 (79%)
   - [ ] Implement WebP encoder (if not already done)
   - [ ] Handle WebP specific features
   - [ ] Target: 90%+ pass rate on WebP suite
-
-- [ ] **testimages Miscellaneous**
-  - [ ] Analyze edge case failures
-  - [ ] Fix format-specific issues
-  - [ ] Target: 90%+ pass rate on testimages
 
 ### Phase 4: Performance Optimization (Priority: LOW)
 
@@ -271,7 +261,6 @@ zig build conformance 2>&1 | tee conformance_output.txt
 ls -la testdata/conformance/pngsuite/ | wc -l
 ls -la testdata/conformance/kodak/ | wc -l
 ls -la testdata/conformance/webp/ | wc -l
-ls -la testdata/conformance/testimages/ | wc -l
 ```
 
 ---
@@ -296,7 +285,6 @@ ls -la testdata/conformance/testimages/ | wc -l
 - PNGSuite: [TBD] / [TBD] passing
 - Kodak: [TBD] / [TBD] passing
 - WebP: [TBD] / [TBD] passing
-- testimages: [TBD] / [TBD] passing
 
 ---
 

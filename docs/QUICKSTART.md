@@ -31,8 +31,7 @@ pyjamaz/
 ├── testdata/conformance/
 │   ├── kodak/                # Kodak test suite
 │   ├── pngsuite/             # PNG Suite
-│   ├── webp/                 # WebP gallery
-│   └── testimages/           # Standard test images
+│   └── webp/                 # WebP gallery
 └── docs/scripts/
     └── download_testdata.sh  # Test data downloader
 ```

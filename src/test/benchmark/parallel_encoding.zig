@@ -53,6 +53,7 @@ pub fn benchmarkParallelEncoding(
             .output_path = "/tmp/benchmark_seq.jpg",
             .max_bytes = config.max_bytes,
             .max_diff = null,
+            .metric_type = .none, // v0.3.0: No perceptual checking in benchmark
             .formats = config.formats,
             .transform_params = types.TransformParams.init(),
             .concurrency = 1, // Force sequential
@@ -72,6 +73,7 @@ pub fn benchmarkParallelEncoding(
             .output_path = "/tmp/benchmark_par.jpg",
             .max_bytes = config.max_bytes,
             .max_diff = null,
+            .metric_type = .none, // v0.3.0: No perceptual checking in benchmark
             .formats = config.formats,
             .transform_params = types.TransformParams.init(),
             .concurrency = 4, // 4 threads
