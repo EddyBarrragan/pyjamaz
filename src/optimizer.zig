@@ -35,6 +35,7 @@ pub const OptimizationJob = struct {
     formats: []const ImageFormat, // Formats to try
     transform_params: TransformParams,
     concurrency: u8, // Max parallel encoding tasks
+    parallel_encoding: bool, // Enable parallel encoding (default: true in 0.2.0)
 
     /// Create a basic job with sensible defaults
     pub fn init(input_path: []const u8, output_path: []const u8) OptimizationJob {
@@ -46,6 +47,7 @@ pub const OptimizationJob = struct {
             .formats = &[_]ImageFormat{ .jpeg, .png },
             .transform_params = TransformParams.init(),
             .concurrency = 4,
+            .parallel_encoding = true, // v0.2.0: Enable by default
         };
     }
 };
@@ -121,7 +123,7 @@ pub fn optimizeImage(
     errdefer buffer.deinit();
     const decode_time = @as(u64, @intCast(std.time.nanoTimestamp() - decode_start));
 
-    // Step 2: Generate candidates in parallel
+    // Step 2: Generate candidates (parallel in v0.2.0)
     const encode_start = std.time.nanoTimestamp();
     var candidates = try generateCandidates(
         allocator,
@@ -129,6 +131,7 @@ pub fn optimizeImage(
         job.formats,
         job.max_bytes,
         job.concurrency,
+        job.parallel_encoding, // v0.2.0: Feature flag
         &warnings,
     );
     errdefer {
@@ -191,6 +194,8 @@ pub fn optimizeImage(
 
 /// Generate encoding candidates for all requested formats
 ///
+/// v0.2.0: Supports both sequential and parallel modes
+///
 /// Tiger Style:
 /// - Bounded loop (iterates exactly formats.len times)
 /// - Bounded parallelism (respects max_workers)
@@ -201,10 +206,47 @@ fn generateCandidates(
     formats: []const ImageFormat,
     max_bytes: ?u32,
     max_workers: u8,
+    parallel: bool,
     warnings: *ArrayList([]u8),
 ) !ArrayList(EncodedCandidate) {
     std.debug.assert(formats.len > 0);
     std.debug.assert(max_workers > 0);
+
+    // v0.2.0: Use parallel encoding if enabled and beneficial
+    // Parallel makes sense when: multiple formats AND multiple workers
+    const use_parallel = parallel and formats.len > 1 and max_workers > 1;
+
+    if (use_parallel) {
+        return generateCandidatesParallel(
+            allocator,
+            buffer,
+            formats,
+            max_bytes,
+            max_workers,
+            warnings,
+        );
+    } else {
+        return generateCandidatesSequential(
+            allocator,
+            buffer,
+            formats,
+            max_bytes,
+            warnings,
+        );
+    }
+}
+
+/// Sequential candidate generation (MVP implementation, also fallback for parallel)
+///
+/// Tiger Style: Bounded loop (exactly formats.len iterations)
+fn generateCandidatesSequential(
+    allocator: Allocator,
+    buffer: *const ImageBuffer,
+    formats: []const ImageFormat,
+    max_bytes: ?u32,
+    warnings: *ArrayList([]u8),
+) !ArrayList(EncodedCandidate) {
+    std.debug.assert(formats.len > 0);
 
     var candidates = ArrayList(EncodedCandidate){};
     errdefer {
@@ -212,8 +254,7 @@ fn generateCandidates(
         candidates.deinit(allocator);
     }
 
-    // For MVP: Sequential encoding (parallel encoding in future iteration)
-    // Tiger Style: Bounded loop (exactly formats.len iterations)
+    // Sequential encoding (formats.len iterations)
     for (formats) |format| {
         const candidate = encodeCandidateForFormat(
             allocator,
@@ -234,6 +275,144 @@ fn generateCandidates(
     }
 
     return candidates;
+}
+
+/// Parallel candidate generation (v0.2.0)
+///
+/// Uses thread pool to encode multiple formats simultaneously.
+/// Expected speedup: 2-4x on multi-core systems.
+///
+/// Tiger Style:
+/// - Bounded parallelism: num_threads = min(formats.len, max_workers)
+/// - Per-thread memory isolation: Each thread uses arena allocator
+/// - Explicit error handling: Thread errors captured, don't crash main
+fn generateCandidatesParallel(
+    allocator: Allocator,
+    buffer: *const ImageBuffer,
+    formats: []const ImageFormat,
+    max_bytes: ?u32,
+    max_workers: u8,
+    warnings: *ArrayList([]u8),
+) !ArrayList(EncodedCandidate) {
+    std.debug.assert(formats.len > 0);
+    std.debug.assert(max_workers > 0);
+    std.debug.assert(buffer.width > 0);
+    std.debug.assert(buffer.height > 0);
+
+    var candidates = ArrayList(EncodedCandidate){};
+    errdefer {
+        for (candidates.items) |*candidate| candidate.deinit(allocator);
+        candidates.deinit(allocator);
+    }
+
+    // Bounded parallelism
+    const num_threads: u8 = @min(@as(u8, @intCast(formats.len)), max_workers);
+    std.debug.assert(num_threads <= max_workers);
+    std.debug.assert(num_threads <= formats.len);
+
+    // Allocate thread contexts
+    const ThreadContext = struct {
+        parent_allocator: Allocator,
+        buffer: *const ImageBuffer,
+        format: ImageFormat,
+        max_bytes: ?u32,
+        result: ?EncodedCandidate,
+        error_msg: ?[]u8,
+
+        fn worker(ctx: *@This()) void {
+            // Per-thread arena allocator (memory isolation)
+            var arena = std.heap.ArenaAllocator.init(ctx.parent_allocator);
+            defer arena.deinit();
+            const thread_alloc = arena.allocator();
+
+            // Encode candidate
+            const candidate = encodeCandidateForFormat(
+                thread_alloc,
+                ctx.buffer,
+                ctx.format,
+                ctx.max_bytes,
+            ) catch |err| {
+                // Capture error
+                ctx.error_msg = ctx.parent_allocator.dupe(
+                    u8,
+                    @errorName(err),
+                ) catch null;
+                ctx.result = null;
+                return;
+            };
+
+            // Clone to parent allocator (arena will be freed)
+            ctx.result = cloneCandidate(ctx.parent_allocator, candidate) catch {
+                ctx.result = null;
+                return;
+            };
+        }
+    };
+
+    const contexts = try allocator.alloc(ThreadContext, num_threads);
+    defer allocator.free(contexts);
+
+    const threads = try allocator.alloc(std.Thread, num_threads);
+    defer allocator.free(threads);
+
+    // Initialize contexts and spawn threads
+    for (contexts, threads, 0..) |*ctx, *thread, i| {
+        ctx.* = .{
+            .parent_allocator = allocator,
+            .buffer = buffer,
+            .format = formats[i],
+            .max_bytes = max_bytes,
+            .result = null,
+            .error_msg = null,
+        };
+
+        thread.* = try std.Thread.spawn(.{}, ThreadContext.worker, .{ctx});
+    }
+
+    // Wait for all threads and collect results
+    for (threads, contexts) |thread, *ctx| {
+        thread.join();
+
+        if (ctx.result) |candidate| {
+            try candidates.append(allocator, candidate);
+        } else if (ctx.error_msg) |err_msg| {
+            const warning = try std.fmt.allocPrint(
+                allocator,
+                "Failed to encode {s}: {s}",
+                .{ @tagName(ctx.format), err_msg },
+            );
+            try warnings.append(allocator, warning);
+            allocator.free(err_msg);
+        }
+    }
+
+    return candidates;
+}
+
+/// Clone an encoded candidate to a different allocator
+///
+/// Used by parallel encoding to transfer candidates from thread-local
+/// arena allocators to the parent allocator.
+fn cloneCandidate(
+    allocator: Allocator,
+    candidate: EncodedCandidate,
+) !EncodedCandidate {
+    std.debug.assert(candidate.encoded_bytes.len > 0);
+    std.debug.assert(candidate.file_size > 0);
+
+    const cloned_bytes = try allocator.dupe(u8, candidate.encoded_bytes);
+
+    std.debug.assert(cloned_bytes.len == candidate.encoded_bytes.len);
+
+    return .{
+        .format = candidate.format,
+        .encoded_bytes = cloned_bytes,
+        .file_size = candidate.file_size,
+        .quality = candidate.quality,
+        .diff_score = candidate.diff_score,
+        .passed_constraints = candidate.passed_constraints,
+        .encoding_time_ns = candidate.encoding_time_ns,
+    };
 }
 
 /// Encode a single candidate for a specific format

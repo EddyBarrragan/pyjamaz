@@ -109,4 +109,31 @@ pub fn build(b: *std.Build) void {
 
     const conformance_step = b.step("conformance", "Run conformance tests on testdata/");
     conformance_step.dependOn(&run_conformance.step);
+
+    // Benchmark executable (v0.2.0: Parallel optimization)
+    const benchmark_exe = b.addExecutable(.{
+        .name = "benchmark",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/benchmark_root.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+
+    // Link C libraries for benchmarks
+    benchmark_exe.linkSystemLibrary("vips");
+    benchmark_exe.linkSystemLibrary("jpeg");
+    benchmark_exe.linkLibC();
+
+    b.installArtifact(benchmark_exe);
+
+    const run_benchmark = b.addRunArtifact(benchmark_exe);
+    run_benchmark.step.dependOn(b.getInstallStep());
+
+    // Set environment variables
+    run_benchmark.setEnvironmentVariable("VIPS_DISC_THRESHOLD", "0");
+    run_benchmark.setEnvironmentVariable("VIPS_NOVECTOR", "1");
+
+    const benchmark_step = b.step("benchmark", "Run parallel encoding performance benchmarks");
+    benchmark_step.dependOn(&run_benchmark.step);
 }
