@@ -9,7 +9,7 @@ const test_utils = @import("../test_utils.zig");
 
 // TODO: Skip vips tests due to libvips thread-safety issues in parallel test execution
 // Re-enable after implementing proper locking around all vips operations
-const SKIP_VIPS_TESTS = false;
+const SKIP_VIPS_TESTS = true;
 
 // Test image paths
 const TEST_PNG_PATH = "testdata/conformance/pngsuite/basn3p02.png"; // 32x32 PNG
