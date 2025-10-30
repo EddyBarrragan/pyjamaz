@@ -216,6 +216,8 @@ test "integration: manifest generation for single optimization" {
         output_path,
         selected.file_size,
         @tagName(selected.format),
+        @tagName(job.metric_type), // diff_metric
+        selected.diff_score, // diff_value
         job.max_bytes,
         job.max_diff,
         alternates.items,
@@ -225,6 +227,7 @@ test "integration: manifest generation for single optimization" {
             .encode_total = @intCast(result.timings.encode_ns / 1_000_000),
             .metrics = 0,
         },
+        &[_][]const u8{}, // warnings (empty for this test)
     );
 
     // Write manifest

@@ -616,6 +616,59 @@ pub fn loadImage(path: []const u8) !VipsImageWrapper {
     return wrapper;
 }
 
+/// Load image from memory buffer (v0.4.0 - for perceptual metrics)
+///
+/// Tiger Style:
+/// - Pre-condition: buffer has valid data
+/// - Bounded: buffer.len < 100MB
+/// - Validates dimensions immediately after load
+pub fn loadImageFromBuffer(buffer: []const u8) !VipsImageWrapper {
+    // Pre-conditions
+    std.debug.assert(buffer.len > 0);
+    std.debug.assert(buffer.len < 100_000_000); // Max 100MB
+
+    const image = vips_image_new_from_buffer(
+        buffer.ptr,
+        buffer.len,
+        @as([*c]u8, null),
+        @as([*c]u8, null),
+    );
+
+    if (image == null) {
+        const err = getVipsError();
+        std.debug.print("Failed to load image from buffer: {s}\n", .{err});
+        clearVipsError();
+        return VipsError.LoadFailed;
+    }
+
+    var wrapper = VipsImageWrapper.wrap(image.?);
+
+    // Tiger Style: Validate dimensions (same as loadImage)
+    const w = wrapper.width();
+    const h = wrapper.height();
+    const b = wrapper.bands();
+
+    const MAX_DIMENSION: u32 = 65535;
+    const MAX_PIXELS: u64 = 178_000_000;
+
+    if (w == 0 or h == 0 or w > MAX_DIMENSION or h > MAX_DIMENSION) {
+        std.log.err("Image dimensions out of bounds: {d}x{d}", .{ w, h });
+        wrapper.deinit();
+        return VipsError.InvalidImage;
+    }
+
+    const total_pixels: u64 = @as(u64, w) * @as(u64, h);
+    if (total_pixels > MAX_PIXELS) {
+        std.log.err("Image too large: {d}x{d} = {d} pixels (max {d})", .{ w, h, total_pixels, MAX_PIXELS });
+        wrapper.deinit();
+        return VipsError.InvalidImage;
+    }
+
+    std.debug.assert(b > 0 and b <= 4);
+
+    return wrapper;
+}
+
 /// Apply EXIF auto-rotation to image
 ///
 /// Safety: Returns new image, caller must deinit both input and output

@@ -9,7 +9,7 @@ const test_utils = @import("../test_utils.zig");
 
 // TODO: Skip vips tests due to libvips thread-safety issues in parallel test execution
 // Re-enable after implementing proper locking around all vips operations
-const SKIP_VIPS_TESTS = true;
+const SKIP_VIPS_TESTS = false;
 
 // Test image paths
 const TEST_PNG_PATH = "testdata/conformance/pngsuite/basn3p02.png"; // 32x32 PNG
@@ -23,8 +23,6 @@ const ensureVipsInit = test_utils.ensureVipsInit;
 // ============================================================================
 
 test "decodeImage: loads valid PNG" {
-    if (SKIP_VIPS_TESTS) return error.SkipZigTest;
-
     if (SKIP_VIPS_TESTS) return error.SkipZigTest;
 
     const allocator = testing.allocator;
@@ -43,8 +41,6 @@ test "decodeImage: loads valid PNG" {
 }
 
 test "decodeImage: loads PNG with alpha" {
-    if (SKIP_VIPS_TESTS) return error.SkipZigTest;
-
     if (SKIP_VIPS_TESTS) return error.SkipZigTest;
 
     const allocator = testing.allocator;
@@ -75,8 +71,6 @@ test "decodeImage: loads PNG with alpha" {
 test "decodeImage: applies EXIF auto-rotation" {
     if (SKIP_VIPS_TESTS) return error.SkipZigTest;
 
-    if (SKIP_VIPS_TESTS) return error.SkipZigTest;
-
     const allocator = testing.allocator;
 
     try ensureVipsInit();
@@ -93,8 +87,6 @@ test "decodeImage: applies EXIF auto-rotation" {
 }
 
 test "decodeImage: normalizes to sRGB color space" {
-    if (SKIP_VIPS_TESTS) return error.SkipZigTest;
-
     if (SKIP_VIPS_TESTS) return error.SkipZigTest;
 
     const allocator = testing.allocator;

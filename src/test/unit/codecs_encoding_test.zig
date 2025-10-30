@@ -9,7 +9,7 @@ const test_utils = @import("../test_utils.zig");
 
 // TODO: Skip vips tests due to libvips thread-safety issues in parallel test execution
 // Re-enable after implementing proper locking around all vips operations
-const SKIP_VIPS_TESTS = true;
+const SKIP_VIPS_TESTS = false;
 
 // Test image paths
 const TEST_PNG_PATH = "testdata/conformance/pngsuite/basn3p02.png"; // 32x32 PNG
@@ -314,22 +314,17 @@ test "encodeImage: unsupported format returns error" {
     const allocator = testing.allocator;
 
     try ensureVipsInit();
-    
+
 
     var buffer = try image_ops.decodeImage(allocator, TEST_PNG_PATH);
     defer buffer.deinit();
 
-    // WebP not yet implemented
-    const result_webp = codecs.encodeImage(allocator, &buffer, .webp, 80);
-    try testing.expectError(codecs.CodecError.UnsupportedFormat, result_webp);
-
-    // AVIF not yet implemented
-    const result_avif = codecs.encodeImage(allocator, &buffer, .avif, 75);
-    try testing.expectError(codecs.CodecError.UnsupportedFormat, result_avif);
-
-    // Unknown format
+    // Unknown format should always return UnsupportedFormat
     const result_unknown = codecs.encodeImage(allocator, &buffer, .unknown, 85);
     try testing.expectError(codecs.CodecError.UnsupportedFormat, result_unknown);
+
+    // Note: AVIF support depends on libvips compilation flags
+    // If libvips doesn't have HEIF support, it returns SaveFailed instead of UnsupportedFormat
 }
 
 // ============================================================================

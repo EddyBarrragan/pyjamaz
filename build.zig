@@ -24,6 +24,9 @@ pub fn build(b: *std.Build) void {
     // exe.linkSystemLibrary("png");
     // exe.linkSystemLibrary("webp");
 
+    // v0.4.0: Perceptual metrics
+    exe.linkSystemLibrary("dssim");
+
     b.installArtifact(exe);
 
     // Run step (for `zig build run`)
@@ -48,6 +51,7 @@ pub fn build(b: *std.Build) void {
     // Link C libraries for tests too
     unit_tests.linkSystemLibrary("vips");
     unit_tests.linkSystemLibrary("jpeg");
+    unit_tests.linkSystemLibrary("dssim");
     unit_tests.linkLibC();
 
     const run_unit_tests = b.addRunArtifact(unit_tests);
@@ -72,6 +76,7 @@ pub fn build(b: *std.Build) void {
     // Link C libraries for integration tests
     integration_tests.linkSystemLibrary("vips");
     integration_tests.linkSystemLibrary("jpeg");
+    integration_tests.linkSystemLibrary("dssim");
     integration_tests.linkLibC();
 
     const run_integration_tests = b.addRunArtifact(integration_tests);
@@ -96,6 +101,7 @@ pub fn build(b: *std.Build) void {
     // Link C libraries for conformance tests
     conformance_exe.linkSystemLibrary("vips");
     conformance_exe.linkSystemLibrary("jpeg");
+    conformance_exe.linkSystemLibrary("dssim");
     conformance_exe.linkLibC();
 
     b.installArtifact(conformance_exe);
@@ -123,6 +129,7 @@ pub fn build(b: *std.Build) void {
     // Link C libraries for benchmarks
     benchmark_exe.linkSystemLibrary("vips");
     benchmark_exe.linkSystemLibrary("jpeg");
+    benchmark_exe.linkSystemLibrary("dssim");
     benchmark_exe.linkLibC();
 
     b.installArtifact(benchmark_exe);

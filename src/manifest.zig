@@ -177,18 +177,22 @@ pub fn writeManifest(
     }
 }
 
-/// Helper to create a manifest entry with default values for MVP.
-/// Perceptual diff stubbed to 0.0 (will be computed in 0.2.0).
+/// Helper to create a manifest entry with real perceptual metrics (v0.4.0)
+///
+/// Tiger Style: All parameters explicit, dual-constraint validation
 pub fn createEntry(
     _: Allocator,
     input: []const u8,
     output: []const u8,
     bytes: u32,
     format: []const u8,
+    diff_metric: []const u8,
+    diff_value: f64,
     budget_bytes: ?u32,
     max_diff: ?f64,
     alternates: []const ManifestEntry.Alternate,
     timings_ms: ManifestEntry.Timings,
+    warnings: []const []const u8,
 ) !ManifestEntry {
     // allocator parameter reserved for future use
 
@@ -196,26 +200,36 @@ pub fn createEntry(
     std.debug.assert(input.len > 0);
     std.debug.assert(output.len > 0);
     std.debug.assert(format.len > 0);
+    std.debug.assert(diff_metric.len > 0);
+    std.debug.assert(diff_value >= 0.0);
+    std.debug.assert(!std.math.isNan(diff_value));
 
-    // Determine if passed (for MVP, just check budget)
-    const passed = if (budget_bytes) |budget|
-        bytes <= budget
-    else
-        true;
+    // Determine if passed (v0.4.0: dual-constraint validation)
+    const passed = blk: {
+        // Check size constraint
+        if (budget_bytes) |budget| {
+            if (bytes > budget) break :blk false;
+        }
+        // Check quality constraint
+        if (max_diff) |limit| {
+            if (diff_value > limit) break :blk false;
+        }
+        break :blk true;
+    };
 
     return ManifestEntry{
         .input = input,
         .output = output,
         .bytes = bytes,
         .format = format,
-        .diff_metric = "butteraugli", // Default for MVP
-        .diff_value = 0.0, // MVP stub: will be computed in 0.2.0
+        .diff_metric = diff_metric,
+        .diff_value = diff_value,
         .budget_bytes = budget_bytes,
         .max_diff = max_diff,
         .passed = passed,
         .alternates = alternates,
         .timings_ms = timings_ms,
-        .warnings = &[_][]const u8{}, // Empty for MVP
+        .warnings = warnings,
     };
 }
 
@@ -307,7 +321,7 @@ test "writeManifestLine produces JSONL format" {
     try std.testing.expect(json_str[json_str.len - 2] != '\n');
 }
 
-test "createEntry generates valid manifest entry with defaults" {
+test "createEntry generates valid manifest entry with real metrics" {
     const allocator = std.testing.allocator;
 
     const entry = try createEntry(
@@ -316,19 +330,23 @@ test "createEntry generates valid manifest entry with defaults" {
         "output.avif",
         50000,
         "avif",
+        "dssim", // diff_metric
+        0.0025, // diff_value
         100000, // budget
-        1.0, // max_diff
+        0.01, // max_diff
         &[_]ManifestEntry.Alternate{},
         .{ .decode = 10, .transform = 5, .encode_total = 20, .metrics = 3 },
+        &[_][]const u8{}, // warnings
     );
 
-    // Verify defaults
+    // Verify fields
     try std.testing.expectEqualStrings("input.jpg", entry.input);
     try std.testing.expectEqualStrings("output.avif", entry.output);
     try std.testing.expectEqual(@as(u32, 50000), entry.bytes);
     try std.testing.expectEqualStrings("avif", entry.format);
-    try std.testing.expectEqual(@as(f64, 0.0), entry.diff_value); // MVP stub
-    try std.testing.expectEqual(true, entry.passed); // Under budget
+    try std.testing.expectEqualStrings("dssim", entry.diff_metric);
+    try std.testing.expectEqual(@as(f64, 0.0025), entry.diff_value);
+    try std.testing.expectEqual(true, entry.passed); // Under budget and quality limit
 }
 
 test "createEntry marks as failed when over budget" {
@@ -340,13 +358,38 @@ test "createEntry marks as failed when over budget" {
         "output.webp",
         150000, // Over budget
         "webp",
+        "dssim",
+        0.005, // Good quality
         100000, // budget
-        1.0,
+        0.01, // max_diff
         &[_]ManifestEntry.Alternate{},
         .{ .decode = 10, .transform = 5, .encode_total = 20, .metrics = 3 },
+        &[_][]const u8{},
     );
 
-    // Should be marked as failed
+    // Should be marked as failed (over budget)
+    try std.testing.expectEqual(false, entry.passed);
+}
+
+test "createEntry marks as failed when diff exceeds limit" {
+    const allocator = std.testing.allocator;
+
+    const entry = try createEntry(
+        allocator,
+        "input.jpg",
+        "output.webp",
+        50000, // Under budget
+        "webp",
+        "dssim",
+        0.05, // Poor quality (exceeds limit)
+        100000, // budget
+        0.01, // max_diff
+        &[_]ManifestEntry.Alternate{},
+        .{ .decode = 10, .transform = 5, .encode_total = 20, .metrics = 3 },
+        &[_][]const u8{},
+    );
+
+    // Should be marked as failed (diff too high)
     try std.testing.expectEqual(false, entry.passed);
 }
 

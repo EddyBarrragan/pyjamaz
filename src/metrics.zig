@@ -10,6 +10,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ImageBuffer = @import("types/image_buffer.zig").ImageBuffer;
+const dssim = @import("metrics/dssim.zig");
 
 pub const MetricError = error{
     UnsupportedMetric,
@@ -63,18 +64,15 @@ pub fn computePerceptualDiff(
     }
 
     const result = switch (metric) {
-        .butteraugli => computeButteraugli(allocator, baseline, candidate),
-        .dssim => computeDSSIM(allocator, baseline, candidate),
+        .butteraugli => try computeButteraugli(allocator, baseline, candidate),
+        .dssim => try computeDSSIM(allocator, baseline, candidate),
         .none => 0.0, // MVP: no perceptual checking
     };
 
     // Post-conditions: Validate result (Tiger Style)
-    // Note: Stub implementations return errors, so this only validates .none case
-    if (metric == .none) {
-        std.debug.assert(result >= 0.0); // Non-negative
-        std.debug.assert(!std.math.isNan(result)); // Not NaN
-        std.debug.assert(!std.math.isInf(result)); // Not infinite
-    }
+    std.debug.assert(result >= 0.0); // Non-negative
+    std.debug.assert(!std.math.isNan(result)); // Not NaN
+    std.debug.assert(!std.math.isInf(result)); // Not infinite
 
     return result;
 }
@@ -121,27 +119,15 @@ fn computeButteraugli(
 /// - 0.05+ = noticeable differences
 ///
 /// Tiger Style: Bounded iteration, memory-safe
-///
-/// NOTE: This is a STUB implementation for v0.3.0 MVP.
-/// DSSIM is not yet implemented. Use metric_type=.none to bypass.
 fn computeDSSIM(
     allocator: Allocator,
     baseline: *const ImageBuffer,
     candidate: *const ImageBuffer,
 ) MetricError!f64 {
-    _ = allocator;
-
-    // Tiger Style: Fail loudly for unimplemented features
-    // Returning 0.0 would falsely indicate "perfect match" and bypass quality constraints
-    std.log.err("DSSIM not implemented. Set metric_type=.none to bypass quality checks.", .{});
-    std.log.err("Baseline: {d}x{d}, Candidate: {d}x{d}", .{
-        baseline.width,
-        baseline.height,
-        candidate.width,
-        candidate.height,
-    });
-
-    return MetricError.UnsupportedMetric;
+    return dssim.compute(allocator, baseline, candidate) catch |err| {
+        std.log.err("DSSIM computation failed: {}", .{err});
+        return MetricError.ComputeFailed;
+    };
 }
 
 /// Get recommended threshold for a metric

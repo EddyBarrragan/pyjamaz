@@ -63,6 +63,54 @@ pub fn decodeImage(allocator: Allocator, path: []const u8) !ImageBuffer {
     return buffer;
 }
 
+/// Decode image from memory buffer (v0.4.0 - for perceptual metrics)
+///
+/// Steps:
+/// 1. Load image from byte buffer
+/// 2. Apply EXIF auto-rotation
+/// 3. Convert to sRGB color space
+/// 4. Return normalized ImageBuffer
+///
+/// Safety: Returns ImageBuffer, caller must call deinit()
+/// Requires: VipsContext must be initialized
+/// Tiger Style: 8 assertions (pre-conditions, invariants, post-conditions)
+pub fn decodeImageFromMemory(allocator: Allocator, bytes: []const u8) !ImageBuffer {
+    // Pre-conditions (Tiger Style: 2)
+    std.debug.assert(bytes.len > 0);
+    std.debug.assert(bytes.len < 100_000_000); // Max 100MB
+
+    // Load image from memory
+    var img = try vips.loadImageFromBuffer(bytes);
+    defer img.deinit();
+
+    // Invariant: Loaded image has valid dimensions
+    std.debug.assert(img.width() > 0 and img.width() <= 65535);
+    std.debug.assert(img.height() > 0 and img.height() <= 65535);
+
+    // Apply EXIF auto-rotation
+    var rotated = try vips.autorot(&img);
+    defer rotated.deinit();
+
+    // Invariant: Rotation preserves validity
+    std.debug.assert(rotated.width() > 0 and rotated.height() > 0);
+
+    // Convert to sRGB (normalized color space)
+    var srgb = try vips.toSRGB(&rotated);
+    defer srgb.deinit();
+
+    // Invariant: Color space conversion succeeded
+    std.debug.assert(srgb.interpretation() == .srgb);
+
+    // Convert to ImageBuffer
+    const buffer = try srgb.toImageBuffer(allocator);
+
+    // Post-conditions (Tiger Style: 2)
+    std.debug.assert(buffer.width > 0 and buffer.height > 0);
+    std.debug.assert(buffer.data.len == @as(usize, buffer.stride) * @as(usize, buffer.height));
+
+    return buffer;
+}
+
 /// Resize mode for image transformations
 pub const ResizeMode = enum {
     /// Resize to exact dimensions (may distort aspect ratio)

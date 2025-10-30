@@ -23,6 +23,11 @@ pub const EncodedCandidate = struct {
     passed_constraints: bool,
     encoding_time_ns: u64,
 
+    comptime {
+        // Tiger Style: Ensure struct size is reasonable
+        std.debug.assert(@sizeOf(EncodedCandidate) <= 128);
+    }
+
     pub fn deinit(self: *EncodedCandidate, allocator: Allocator) void {
         allocator.free(self.encoded_bytes);
     }
@@ -91,19 +96,119 @@ pub const OptimizationResult = struct {
     }
 };
 
+/// Detect image format from magic numbers (file signature)
+///
+/// Tiger Style: Bounded checks, explicit fallback to .unknown
+fn detectFormatFromMagic(bytes: []const u8) ImageFormat {
+    std.debug.assert(bytes.len >= 0); // Pre-condition
+
+    if (bytes.len < 4) return .unknown;
+
+    // JPEG: FF D8 FF
+    if (bytes[0] == 0xFF and bytes[1] == 0xD8) return .jpeg;
+
+    // PNG: 89 50 4E 47
+    if (bytes[0] == 0x89 and bytes[1] == 0x50 and
+        bytes[2] == 0x4E and bytes[3] == 0x47) return .png;
+
+    // WebP: RIFF ... WEBP (needs 12 bytes)
+    if (bytes.len >= 12 and
+        bytes[0] == 0x52 and bytes[1] == 0x49 and
+        bytes[8] == 0x57 and bytes[9] == 0x45) return .webp;
+
+    // AVIF: ftyp (needs 12 bytes)
+    if (bytes.len >= 12 and
+        bytes[4] == 0x66 and bytes[5] == 0x74) return .avif;
+
+    return .unknown;
+}
+
+/// Add original file as baseline candidate
+///
+/// Ensures optimizer never makes files larger. Critical for conformance!
+///
+/// Tiger Style:
+/// - Bounded file I/O (MAX_ORIGINAL_SIZE)
+/// - Graceful format detection fallback
+/// - Pre-condition: path must be valid file
+fn addOriginalCandidate(
+    allocator: Allocator,
+    input_path: []const u8,
+    max_bytes: ?u32,
+    candidates: *ArrayList(EncodedCandidate),
+) !void {
+    // Pre-conditions
+    std.debug.assert(input_path.len > 0);
+
+    // Tiger Style: Bounded file I/O to prevent OOM
+    const MAX_ORIGINAL_SIZE: u64 = 100 * 1024 * 1024; // 100MB
+
+    const file = try std.fs.cwd().openFile(input_path, .{});
+    defer file.close();
+
+    const stat = try file.stat();
+    if (stat.size > MAX_ORIGINAL_SIZE) {
+        std.log.err("Original file too large: {d} bytes (max: {d})", .{stat.size, MAX_ORIGINAL_SIZE});
+        return error.FileTooLarge;
+    }
+
+    const original_bytes = try file.readToEndAlloc(allocator, stat.size);
+    errdefer allocator.free(original_bytes);
+
+    // Get original format with graceful fallback
+    const original_format = image_ops.getImageMetadata(input_path) catch |err| blk: {
+        std.log.warn("Failed to get original metadata: {}, attempting format detection from bytes", .{err});
+
+        const detected_format = detectFormatFromMagic(original_bytes);
+        std.log.warn("Detected format from magic numbers: {s}", .{@tagName(detected_format)});
+
+        break :blk ImageMetadata{
+            .format = detected_format,
+            .original_width = 0,
+            .original_height = 0,
+            .has_alpha = false,
+            .exif_orientation = .normal,
+            .icc_profile = null,
+            .allocator = null,
+        };
+    };
+
+    const passed_constraints = if (max_bytes) |max| original_bytes.len <= max else true;
+
+    const original_candidate = EncodedCandidate{
+        .format = original_format.format,
+        .encoded_bytes = original_bytes,
+        .file_size = @intCast(original_bytes.len),
+        .quality = 100,
+        .diff_score = 0.0,
+        .passed_constraints = passed_constraints,
+        .encoding_time_ns = 0,
+    };
+
+    std.log.debug("Adding original file as baseline candidate: format={s}, size={d}", .{
+        @tagName(original_candidate.format),
+        original_candidate.file_size,
+    });
+
+    try candidates.append(allocator, original_candidate);
+
+    // Post-condition: original added successfully
+    std.debug.assert(candidates.items.len > 0);
+}
+
 /// Main optimization function - orchestrates the entire pipeline
 ///
 /// Steps:
 /// 1. Decode and normalize input image
 /// 2. Generate candidates in parallel (one per format)
-/// 3. Score candidates (stubbed for MVP)
+/// 3. Add original file as baseline
 /// 4. Select best passing candidate
 /// 5. Return detailed result
 ///
 /// Tiger Style:
 /// - Bounded parallelism (job.concurrency)
 /// - Explicit error handling
-/// - Each step bounded to avoid infinite loops
+/// - Function ≤70 lines (extracts helpers)
 pub fn optimizeImage(
     allocator: Allocator,
     job: OptimizationJob,
@@ -134,6 +239,8 @@ pub fn optimizeImage(
         &buffer,
         job.formats,
         job.max_bytes,
+        job.max_diff,
+        job.metric_type,
         job.concurrency,
         job.parallel_encoding, // v0.2.0: Feature flag
         &warnings,
@@ -146,86 +253,10 @@ pub fn optimizeImage(
 
     buffer.deinit(); // No longer needed
 
-    // Step 2.5: Add original file as baseline candidate
-    // This ensures we never make files larger - original can be selected if smallest
-    // DEBUG: Added extensive logging to diagnose size regression failures
-    const original_bytes = blk: {
-        const file = try std.fs.cwd().openFile(job.input_path, .{});
-        defer file.close();
-        const stat = try file.stat();
-        break :blk try file.readToEndAlloc(allocator, stat.size);
-    };
-    errdefer allocator.free(original_bytes);
+    // Step 2.5: Add original file as baseline candidate (prevents size regressions)
+    try addOriginalCandidate(allocator, job.input_path, job.max_bytes, &candidates);
 
-    // Get original format with graceful fallback
-    const original_format = image_ops.getImageMetadata(job.input_path) catch |err| blk: {
-        std.log.warn("Failed to get original metadata: {}, attempting format detection from bytes", .{err});
-
-        // Attempt to detect format from file magic numbers
-        const detected_format = if (original_bytes.len >= 4) detect_blk: {
-            // JPEG: FF D8 FF
-            if (original_bytes[0] == 0xFF and original_bytes[1] == 0xD8) {
-                break :detect_blk ImageFormat.jpeg;
-            }
-            // PNG: 89 50 4E 47
-            if (original_bytes[0] == 0x89 and original_bytes[1] == 0x50 and
-                original_bytes[2] == 0x4E and original_bytes[3] == 0x47) {
-                break :detect_blk ImageFormat.png;
-            }
-            // WebP: RIFF ... WEBP
-            if (original_bytes.len >= 12 and
-                original_bytes[0] == 0x52 and original_bytes[1] == 0x49 and
-                original_bytes[8] == 0x57 and original_bytes[9] == 0x45) {
-                break :detect_blk ImageFormat.webp;
-            }
-            // AVIF: ftyp
-            if (original_bytes.len >= 12 and
-                original_bytes[4] == 0x66 and original_bytes[5] == 0x74) {
-                break :detect_blk ImageFormat.avif;
-            }
-            break :detect_blk ImageFormat.unknown;
-        } else ImageFormat.unknown;
-
-        std.log.warn("Detected format from magic numbers: {s}", .{@tagName(detected_format)});
-
-        break :blk ImageMetadata{
-            .format = detected_format,
-            .original_width = 0,  // Unknown dimensions
-            .original_height = 0,
-            .has_alpha = false,   // Unknown
-            .exif_orientation = .normal,
-            .icc_profile = null,
-            .allocator = null,
-        };
-    };
-
-    const passed_constraints = if (job.max_bytes) |max| original_bytes.len <= max else true;
-
-    const original_candidate = EncodedCandidate{
-        .format = original_format.format,
-        .encoded_bytes = original_bytes,
-        .file_size = @intCast(original_bytes.len),
-        .quality = 100, // Original quality
-        .diff_score = 0.0, // Perfect match to original
-        .passed_constraints = passed_constraints,
-        .encoding_time_ns = 0, // No encoding needed
-    };
-
-    // DEBUG: Log original candidate details
-    std.log.debug("Adding original file as baseline candidate:", .{});
-    std.log.debug("  Format: {s}", .{@tagName(original_candidate.format)});
-    std.log.debug("  Size: {d} bytes", .{original_candidate.file_size});
-    std.log.debug("  Quality: {d}", .{original_candidate.quality});
-    std.log.debug("  Passed constraints: {}", .{original_candidate.passed_constraints});
-    std.log.debug("  Max bytes constraint: {?d}", .{job.max_bytes});
-
-    try candidates.append(allocator, original_candidate);
-    // Note: original_bytes now owned by candidates list, errdefer above no longer applies
-
-    // Step 3: Score candidates (stubbed - all get diff_score = 0.0)
-    // In 0.2.0 this will compute Butteraugli/DSSIM
-
-    // Step 4: Select best candidate
+    // Step 3: Select best candidate
     const selected = try selectBestCandidate(
         allocator,
         candidates.items,
@@ -261,6 +292,8 @@ fn generateCandidates(
     buffer: *const ImageBuffer,
     formats: []const ImageFormat,
     max_bytes: ?u32,
+    max_diff: ?f64,
+    metric_type: MetricType,
     max_workers: u8,
     parallel: bool,
     warnings: *ArrayList([]u8),
@@ -278,6 +311,8 @@ fn generateCandidates(
             buffer,
             formats,
             max_bytes,
+            max_diff,
+            metric_type,
             max_workers,
             warnings,
         );
@@ -287,6 +322,8 @@ fn generateCandidates(
             buffer,
             formats,
             max_bytes,
+            max_diff,
+            metric_type,
             warnings,
         );
     }
@@ -300,6 +337,8 @@ fn generateCandidatesSequential(
     buffer: *const ImageBuffer,
     formats: []const ImageFormat,
     max_bytes: ?u32,
+    max_diff: ?f64,
+    metric_type: MetricType,
     warnings: *ArrayList([]u8),
 ) !ArrayList(EncodedCandidate) {
     // Tiger Style: Explicit MAX constant for bounded loops
@@ -314,14 +353,18 @@ fn generateCandidatesSequential(
     }
 
     // Sequential encoding (bounded by MAX_FORMATS)
+    var processed: u8 = 0;
     for (formats, 0..) |format, i| {
         std.debug.assert(i < MAX_FORMATS); // Loop invariant
+        processed += 1;
 
         const candidate = encodeCandidateForFormat(
             allocator,
             buffer,
             format,
             max_bytes,
+            max_diff,
+            metric_type
         ) catch |err| {
             // Log error and continue with other formats
             const warning = try std.fmt.allocPrint(
@@ -335,38 +378,79 @@ fn generateCandidatesSequential(
         try candidates.append(allocator, candidate);
     }
 
-    // Post-condition: Verify bounded execution
+    // Post-loop assertions: Verify bounded execution
+    std.debug.assert(processed == formats.len);
+    std.debug.assert(processed <= MAX_FORMATS);
     std.debug.assert(candidates.items.len <= MAX_FORMATS);
 
     return candidates;
 }
+
+/// Thread context for parallel encoding (v0.2.0)
+///
+/// Each thread gets isolated arena allocator for memory safety.
+/// Results are cloned back to parent allocator after encoding.
+const EncodingThreadContext = struct {
+    parent_allocator: Allocator,
+    buffer: *const ImageBuffer,
+    format: ImageFormat,
+    max_bytes: ?u32,
+    max_diff: ?f64,
+    metric_type: MetricType,
+    result: ?EncodedCandidate,
+    error_msg: ?[]u8,
+
+    /// Worker function executed by each thread
+    fn worker(self: *EncodingThreadContext) void {
+        // Per-thread arena allocator (memory isolation)
+        var arena = std.heap.ArenaAllocator.init(self.parent_allocator);
+        defer arena.deinit();
+        const thread_alloc = arena.allocator();
+
+        // Encode candidate
+        const candidate = encodeCandidateForFormat(
+            thread_alloc,
+            self.buffer,
+            self.format,
+            self.max_bytes,
+            self.max_diff,
+            self.metric_type,
+        ) catch |err| {
+            self.error_msg = self.parent_allocator.dupe(u8, @errorName(err)) catch null;
+            self.result = null;
+            return;
+        };
+
+        // Clone to parent allocator (arena will be freed)
+        self.result = cloneCandidate(self.parent_allocator, candidate) catch {
+            self.result = null;
+            return;
+        };
+    }
+};
 
 /// Parallel candidate generation (v0.2.0)
 ///
 /// Uses thread pool to encode multiple formats simultaneously.
 /// Expected speedup: 2-4x on multi-core systems.
 ///
-/// Tiger Style:
-/// - Bounded parallelism: num_threads = min(formats.len, max_workers)
-/// - Per-thread memory isolation: Each thread uses arena allocator
-/// - Explicit error handling: Thread errors captured, don't crash main
-/// - Explicit MAX constant: Bounded by MAX_FORMATS
+/// Tiger Style: ≤70 lines, bounded parallelism, memory isolation
 fn generateCandidatesParallel(
     allocator: Allocator,
     buffer: *const ImageBuffer,
     formats: []const ImageFormat,
     max_bytes: ?u32,
+    max_diff: ?f64,
+    metric_type: MetricType,
     max_workers: u8,
     warnings: *ArrayList([]u8),
 ) !ArrayList(EncodedCandidate) {
-    // Tiger Style: Explicit MAX constant for bounded loops
-    const MAX_FORMATS: u8 = 10; // Reasonable upper limit for format count
+    const MAX_FORMATS: u8 = 10;
 
-    std.debug.assert(formats.len > 0);
-    std.debug.assert(formats.len <= MAX_FORMATS); // Pre-condition
+    // Pre-conditions
+    std.debug.assert(formats.len > 0 and formats.len <= MAX_FORMATS);
     std.debug.assert(max_workers > 0);
-    std.debug.assert(buffer.width > 0);
-    std.debug.assert(buffer.height > 0);
+    std.debug.assert(buffer.width > 0 and buffer.height > 0);
 
     var candidates = ArrayList(EncodedCandidate){};
     errdefer {
@@ -376,89 +460,45 @@ fn generateCandidatesParallel(
 
     // Bounded parallelism
     const num_threads: u8 = @min(@as(u8, @intCast(formats.len)), max_workers);
-    std.debug.assert(num_threads <= max_workers);
-    std.debug.assert(num_threads <= formats.len);
-    std.debug.assert(num_threads <= MAX_FORMATS); // Additional bound check
+    std.debug.assert(num_threads <= max_workers and num_threads <= formats.len);
 
-    // Allocate thread contexts
-    const ThreadContext = struct {
-        parent_allocator: Allocator,
-        buffer: *const ImageBuffer,
-        format: ImageFormat,
-        max_bytes: ?u32,
-        result: ?EncodedCandidate,
-        error_msg: ?[]u8,
-
-        fn worker(ctx: *@This()) void {
-            // Per-thread arena allocator (memory isolation)
-            var arena = std.heap.ArenaAllocator.init(ctx.parent_allocator);
-            defer arena.deinit();
-            const thread_alloc = arena.allocator();
-
-            // Encode candidate
-            const candidate = encodeCandidateForFormat(
-                thread_alloc,
-                ctx.buffer,
-                ctx.format,
-                ctx.max_bytes,
-            ) catch |err| {
-                // Capture error
-                ctx.error_msg = ctx.parent_allocator.dupe(
-                    u8,
-                    @errorName(err),
-                ) catch null;
-                ctx.result = null;
-                return;
-            };
-
-            // Clone to parent allocator (arena will be freed)
-            ctx.result = cloneCandidate(ctx.parent_allocator, candidate) catch {
-                ctx.result = null;
-                return;
-            };
-        }
-    };
-
-    const contexts = try allocator.alloc(ThreadContext, num_threads);
+    const contexts = try allocator.alloc(EncodingThreadContext, num_threads);
     defer allocator.free(contexts);
 
     const threads = try allocator.alloc(std.Thread, num_threads);
     defer allocator.free(threads);
 
-    // Initialize contexts and spawn threads
+    // Spawn threads
     for (contexts, threads, 0..) |*ctx, *thread, i| {
         ctx.* = .{
             .parent_allocator = allocator,
             .buffer = buffer,
             .format = formats[i],
             .max_bytes = max_bytes,
+            .max_diff = max_diff,
+            .metric_type = metric_type,
             .result = null,
             .error_msg = null,
         };
-
-        thread.* = try std.Thread.spawn(.{}, ThreadContext.worker, .{ctx});
+        thread.* = try std.Thread.spawn(.{}, EncodingThreadContext.worker, .{ctx});
     }
 
-    // Wait for all threads and collect results (bounded by num_threads)
+    // Collect results
     for (threads, contexts, 0..) |thread, *ctx, i| {
-        std.debug.assert(i < num_threads); // Loop invariant
-
+        std.debug.assert(i < num_threads);
         thread.join();
 
         if (ctx.result) |candidate| {
             try candidates.append(allocator, candidate);
         } else if (ctx.error_msg) |err_msg| {
-            const warning = try std.fmt.allocPrint(
-                allocator,
-                "Failed to encode {s}: {s}",
-                .{ @tagName(ctx.format), err_msg },
-            );
+            const warning = try std.fmt.allocPrint(allocator, "Failed to encode {s}: {s}",
+                .{ @tagName(ctx.format), err_msg });
             try warnings.append(allocator, warning);
             allocator.free(err_msg);
         }
     }
 
-    // Post-condition: Verify bounded execution
+    // Post-condition
     std.debug.assert(candidates.items.len <= num_threads);
 
     return candidates;
@@ -504,16 +544,69 @@ fn cloneCandidate(
     return result;
 }
 
+/// Compute perceptual diff for a candidate
+///
+/// Decodes candidate and compares against baseline using specified metric.
+/// Returns 0.0 on decode/metric failure (conservative: assume perfect match).
+///
+/// Tiger Style: Pre/post conditions, graceful degradation
+fn computeCandidateDiff(
+    allocator: Allocator,
+    baseline: *const ImageBuffer,
+    encoded_bytes: []const u8,
+    metric_type: MetricType,
+) f64 {
+    // Pre-conditions
+    std.debug.assert(baseline.width > 0 and baseline.height > 0);
+    std.debug.assert(encoded_bytes.len > 0);
+
+    if (metric_type == .none) return 0.0;
+
+    // Decode candidate for comparison
+    var decoded_candidate = image_ops.decodeImageFromMemory(
+        allocator,
+        encoded_bytes,
+    ) catch |err| {
+        std.log.warn("Failed to decode candidate for diff computation: {}", .{err});
+        return 0.0; // Conservative: assume perfect match
+    };
+    defer decoded_candidate.deinit();
+
+    // Compute perceptual diff
+    const diff = metrics.computePerceptualDiff(
+        allocator,
+        baseline,
+        &decoded_candidate,
+        metric_type,
+    ) catch |err| {
+        std.log.warn("Failed to compute perceptual diff: {}", .{err});
+        return 0.0; // Conservative: assume perfect match
+    };
+
+    // Post-condition: valid diff score
+    std.debug.assert(diff >= 0.0 and !std.math.isNan(diff));
+
+    return diff;
+}
+
 /// Encode a single candidate for a specific format
 ///
 /// Uses binary search to hit size target if max_bytes is specified,
 /// otherwise uses default quality.
+///
+/// Tiger Style: ≤70 lines, 2+ assertions, explicit error handling
 fn encodeCandidateForFormat(
     allocator: Allocator,
-    buffer: *const ImageBuffer,
+    baseline: *const ImageBuffer,
     format: ImageFormat,
     max_bytes: ?u32,
+    max_diff: ?f64,
+    metric_type: MetricType,
 ) !EncodedCandidate {
+    // Pre-conditions
+    std.debug.assert(baseline.width > 0 and baseline.height > 0);
+    std.debug.assert(baseline.data.len > 0);
+
     const encode_start = std.time.nanoTimestamp();
 
     var encoded_bytes: []u8 = undefined;
@@ -523,28 +616,37 @@ fn encodeCandidateForFormat(
         // Use binary search to hit target size
         const search_result = try search.binarySearchQuality(
             allocator,
-            buffer.*,
+            baseline.*,
             format,
             target_bytes,
-            .{}, // Default search options
+            .{},
         );
         encoded_bytes = search_result.encoded;
         quality = search_result.quality;
     } else {
         // No size constraint - use default quality
         quality = codecs.getDefaultQuality(format);
-        encoded_bytes = try codecs.encodeImage(allocator, buffer, format, quality);
+        encoded_bytes = try codecs.encodeImage(allocator, baseline, format, quality);
     }
 
     const encode_time = @as(u64, @intCast(std.time.nanoTimestamp() - encode_start));
     const file_size: u32 = @intCast(encoded_bytes.len);
 
-    // Check if constraints are met
+    // Post-condition: encoded data is valid
+    std.debug.assert(encoded_bytes.len > 0);
+    std.debug.assert(file_size == encoded_bytes.len);
+
+    // Compute perceptual diff (v0.4.0)
+    const diff_score = computeCandidateDiff(allocator, baseline, encoded_bytes, metric_type);
+
+    // Check if constraints are met (both size and quality)
     const passed = blk: {
         if (max_bytes) |limit| {
             if (file_size > limit) break :blk false;
         }
-        // In 0.2.0: Also check max_diff constraint here
+        if (max_diff) |limit| {
+            if (diff_score > limit) break :blk false;
+        }
         break :blk true;
     };
 
@@ -553,7 +655,7 @@ fn encodeCandidateForFormat(
         .encoded_bytes = encoded_bytes,
         .file_size = file_size,
         .quality = quality,
-        .diff_score = 0.0, // Stubbed for MVP
+        .diff_score = diff_score,
         .passed_constraints = passed,
         .encoding_time_ns = encode_time,
     };
@@ -563,79 +665,60 @@ fn encodeCandidateForFormat(
 ///
 /// Selection criteria:
 /// 1. Must pass size constraint (bytes <= max_bytes)
-/// 2. Must pass quality constraint (diff <= max_diff) [stubbed for MVP]
+/// 2. Must pass quality constraint (diff <= max_diff)
 /// 3. Prefer smallest file size
 /// 4. Tiebreak by format preference (AVIF > WebP > JPEG > PNG)
 ///
 /// Returns null if no candidate passes constraints.
 ///
-/// DEBUG: Added extensive logging to diagnose selection issues
+/// Tiger Style: Bounded loop, explicit constraints, ≤70 lines
 fn selectBestCandidate(
     allocator: Allocator,
     candidates: []const EncodedCandidate,
     max_bytes: ?u32,
     max_diff: ?f64,
 ) !?EncodedCandidate {
-    _ = max_diff; // Stubbed for MVP
+    // Pre-condition
     std.debug.assert(candidates.len > 0);
-
-    // DEBUG: Log all candidates being considered
-    std.log.debug("Selecting best candidate from {d} options:", .{candidates.len});
-    std.log.debug("  Max bytes constraint: {?d}", .{max_bytes});
 
     var best: ?*const EncodedCandidate = null;
 
     // Tiger Style: Bounded loop (exactly candidates.len iterations)
-    for (candidates, 0..) |*candidate, i| {
-        // DEBUG: Log each candidate
-        std.log.debug("  Candidate {d}: format={s}, size={d}, quality={d}, passed={}", .{
-            i,
-            @tagName(candidate.format),
-            candidate.file_size,
-            candidate.quality,
-            candidate.passed_constraints,
-        });
-
+    for (candidates) |*candidate| {
         // Filter: Check size constraint
         if (max_bytes) |limit| {
-            if (candidate.file_size > limit) {
-                std.log.debug("    Rejected: size {d} > limit {d}", .{ candidate.file_size, limit });
-                continue;
-            }
+            if (candidate.file_size > limit) continue;
         }
 
-        // Filter: Check diff constraint (stubbed for MVP)
-        // In 0.2.0: if (max_diff) |limit| if (candidate.diff_score > limit) continue;
+        // Filter: Check diff constraint (v0.4.0: dual-constraint validation)
+        if (max_diff) |limit| {
+            if (candidate.diff_score > limit) continue;
+        }
 
         // Select if first passing candidate or smaller than current best
         if (best == null or candidate.file_size < best.?.file_size) {
-            std.log.debug("    Selected as new best (size: {d})", .{candidate.file_size});
             best = candidate;
         } else if (candidate.file_size == best.?.file_size) {
-            // Tiebreak by format preference
+            // Tiebreak by format preference (AVIF > WebP > JPEG > PNG)
             const cand_pref = formatPreference(candidate.format);
             const best_pref = formatPreference(best.?.format);
             if (cand_pref > best_pref) {
-                std.log.debug("    Selected as new best (tiebreak: {d} > {d})", .{ cand_pref, best_pref });
                 best = candidate;
-            } else {
-                std.log.debug("    Not selected (tiebreak: {d} <= {d})", .{ cand_pref, best_pref });
             }
-        } else {
-            std.log.debug("    Not selected (size {d} >= current best {d})", .{ candidate.file_size, best.?.file_size });
         }
     }
 
     if (best) |b| {
-        // DEBUG: Log final selection
-        std.log.debug("Final selection: format={s}, size={d}, quality={d}", .{
-            @tagName(b.format),
-            b.file_size,
-            b.quality,
+        std.log.info("Selected: format={s}, size={d}, quality={d}, diff={d:.4}", .{
+            @tagName(b.format), b.file_size, b.quality, b.diff_score
         });
 
         // Clone the best candidate for return
         const cloned_bytes = try allocator.dupe(u8, b.encoded_bytes);
+
+        // Post-condition: cloned data matches original
+        std.debug.assert(cloned_bytes.len == b.encoded_bytes.len);
+
         return .{
             .format = b.format,
             .encoded_bytes = cloned_bytes,

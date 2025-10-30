@@ -15,6 +15,12 @@ pub const search = @import("search.zig");
 pub const cli = @import("cli.zig");
 pub const discovery = @import("discovery.zig");
 pub const naming = @import("naming.zig");
+pub const metrics = @import("metrics.zig");
+
+// Import unit tests
+test "metrics: DSSIM" {
+    _ = @import("test/unit/metrics/dssim_test.zig");
+}
 
 // Import integration tests
 // NOTE: Disabled due to libvips thread-safety issues in parallel test execution

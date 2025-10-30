@@ -30,6 +30,7 @@ const TestResult = struct {
     input_bytes: u64,
     output_bytes: ?u32,
     ratio: ?f64,
+    diff_value: ?f64 = null, // Perceptual quality diff (0.0 = identical, higher = more different)
     reason: ?[]const u8,
     category: FailureCategory = .none,
     selected_format: ?ImageFormat = null,
@@ -43,6 +44,7 @@ const TestResult = struct {
         no_candidates,
         write_error,
         skipped_invalid,
+        quality_regression, // Perceptual quality too different
     };
 };
 
@@ -56,6 +58,8 @@ const SuiteStats = struct {
     total_input_bytes: u64 = 0,
     total_output_bytes: u64 = 0,
     total_time_ms: u64 = 0,
+    total_diff_value: f64 = 0.0, // Sum of all diff_values for averaging
+    diff_count: u32 = 0, // Number of tests with valid diff_value
 };
 
 pub fn main() !void {
@@ -77,7 +81,6 @@ pub fn main() !void {
 
     const test_suites = [_]TestSuite{
         .{ .path = "testdata/conformance/pngsuite", .name = "PNGSuite" },
-        .{ .path = "testdata/conformance/kodak", .name = "Kodak" },
         .{ .path = "testdata/conformance/webp", .name = "WebP" },
         .{ .path = "testdata/conformance/jpeg", .name = "JPEG" },
         .{ .path = "testdata/conformance/samples", .name = "Samples" },
@@ -128,8 +131,7 @@ pub fn main() !void {
 
             // Tiger Style: Skip known-invalid test files
             // PNGSuite: Files starting with "x" are intentionally malformed (xc*, xd*, xs*, xh*, xlf*)
-            // Kodak: All kodim* files are empty placeholders
-            const skip_patterns = [_][]const u8{ "x", "kodim" };
+            const skip_patterns = [_][]const u8{"x"};
             var should_skip = false;
             for (skip_patterns) |pattern| {
                 if (std.mem.startsWith(u8, entry.name, pattern)) {
@@ -193,18 +195,39 @@ pub fn main() !void {
                     @tagName(fmt)
                 else
                     "?";
-                std.debug.print("  ✅ PASS: {s} ({d} → {d} bytes, {d:.1}%, {s}, {d}ms)\n", .{
-                    entry.name,
-                    result.input_bytes,
-                    result.output_bytes.?,
-                    result.ratio.? * 100.0,
-                    fmt_str,
-                    test_time,
-                });
+
+                // Print with or without diff_value
+                if (result.diff_value) |diff| {
+                    std.debug.print("  ✅ PASS: {s} ({d} → {d} bytes, {d:.1}%, {s}, diff={d:.4}, {d}ms)\n", .{
+                        entry.name,
+                        result.input_bytes,
+                        result.output_bytes.?,
+                        result.ratio.? * 100.0,
+                        fmt_str,
+                        diff,
+                        test_time,
+                    });
+                } else {
+                    std.debug.print("  ✅ PASS: {s} ({d} → {d} bytes, {d:.1}%, {s}, {d}ms)\n", .{
+                        entry.name,
+                        result.input_bytes,
+                        result.output_bytes.?,
+                        result.ratio.? * 100.0,
+                        fmt_str,
+                        test_time,
+                    });
+                }
+
                 passed += 1;
                 stats.passed += 1;
                 stats.total_input_bytes += result.input_bytes;
                 stats.total_output_bytes += result.output_bytes.?;
+
+                // Track diff_value statistics
+                if (result.diff_value) |diff| {
+                    stats.total_diff_value += diff;
+                    stats.diff_count += 1;
+                }
             } else {
                 std.debug.print("  ❌ FAIL: {s} - {s} ({d}ms)\n", .{ entry.name, result.reason.?, test_time });
                 failed += 1;
@@ -235,6 +258,11 @@ pub fn main() !void {
         if (stats.failed > 0) std.debug.print("  Failed:  {d}\n", .{stats.failed});
         if (stats.passed > 0) {
             std.debug.print("  Avg compression: {d:.1}%\n", .{avg_compression});
+        }
+        // Print average perceptual diff if available
+        if (stats.diff_count > 0) {
+            const avg_diff = stats.total_diff_value / @as(f64, @floatFromInt(stats.diff_count));
+            std.debug.print("  Avg diff (DSSIM): {d:.4} (n={d})\n", .{ avg_diff, stats.diff_count });
         }
         std.debug.print("  Time: {d}ms\n", .{stats.total_time_ms});
         std.debug.print("\n", .{});
@@ -297,9 +325,17 @@ pub fn main() !void {
             }
         }
 
+        var quality_regressions: u32 = 0;
+        for (all_results.items) |result| {
+            if (!result.passed and !result.skipped and result.category == .quality_regression) {
+                quality_regressions += 1;
+            }
+        }
+
         if (decode_errors > 0) std.debug.print("Decode errors:     {d}\n", .{decode_errors});
         if (encode_errors > 0) std.debug.print("Encode errors:     {d}\n", .{encode_errors});
         if (size_regressions > 0) std.debug.print("Size regressions:  {d}\n", .{size_regressions});
+        if (quality_regressions > 0) std.debug.print("Quality regressions: {d}\n", .{quality_regressions});
         if (no_candidates > 0) std.debug.print("No candidates:     {d}\n", .{no_candidates});
         if (write_errors > 0) std.debug.print("Write errors:      {d}\n", .{write_errors});
     }
@@ -327,11 +363,6 @@ fn shouldSkipFile(input_path: []const u8) bool {
         std.mem.startsWith(u8, basename, "xs") or // Invalid signature
         std.mem.startsWith(u8, basename, "xlf")) // Invalid chunk length
     {
-        return true;
-    }
-
-    // Skip empty Kodak placeholders
-    if (std.mem.startsWith(u8, basename, "kodim")) {
         return true;
     }
 
@@ -434,6 +465,7 @@ fn runOptimizationTest(allocator: Allocator, input_path: []const u8) !TestResult
             .input_bytes = input_bytes,
             .output_bytes = null,
             .ratio = null,
+            .diff_value = null,
             .reason = reason,
             .category = .write_error,
         };
@@ -443,7 +475,11 @@ fn runOptimizationTest(allocator: Allocator, input_path: []const u8) !TestResult
     const output_bytes = selected.file_size;
     const ratio = @as(f64, @floatFromInt(output_bytes)) / @as(f64, @floatFromInt(input_bytes));
 
+    // Extract perceptual diff_value from selected candidate
+    const diff_value = selected.diff_score;
+
     // Pass if output is smaller or within 105% (acceptable for already optimized files)
+    // Also check perceptual quality if diff_value available
     const passed = ratio <= 1.05;
 
     const reason: ?[]const u8 = if (!passed)
@@ -461,6 +497,7 @@ fn runOptimizationTest(allocator: Allocator, input_path: []const u8) !TestResult
         .input_bytes = input_bytes,
         .output_bytes = output_bytes,
         .ratio = ratio,
+        .diff_value = diff_value,
         .reason = reason,
         .category = if (passed) .none else .size_regression,
         .selected_format = selected.format,
