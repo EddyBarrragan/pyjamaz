@@ -381,11 +381,61 @@ zig build conformance
 # Integration tests
 zig build test-integration
 
+# Memory tests (CI/CD recommended)
+zig build memory-test              # Zig memory tests (~1 min)
+zig build memory-test-zig          # Same as above
+
 # Benchmarks
 zig build benchmark
 
 # Specific module
 zig build test -Dtest-filter=optimizer
+```
+
+#### Manual Memory Tests (Node.js & Python)
+
+The Node.js and Python memory tests are available but require manual setup:
+
+**Node.js Memory Tests:**
+```bash
+# Prerequisites
+zig build                          # Build library first
+cd bindings/nodejs
+npm install                        # If not done already
+
+# Run tests
+node --expose-gc tests/memory/gc_verification_test.js
+node tests/memory/ffi_memory_test.js
+node tests/memory/error_recovery_test.js
+node tests/memory/buffer_memory_test.js
+```
+
+**Python Memory Tests:**
+```bash
+# Prerequisites
+zig build                          # Build library first
+pip3 install psutil               # Optional: for better memory tracking
+
+# Run tests
+cd bindings/python
+python3 tests/memory/gc_verification_test.py
+python3 tests/memory/ctypes_memory_test.py
+python3 tests/memory/error_recovery_test.py
+python3 tests/memory/buffer_memory_test.py
+```
+
+**Expected Results:**
+- All tests should report "TEST PASSED"
+- Zero memory leaks detected
+- Colored output showing progress
+
+**Note:** If tests fail with module not found errors, set the library path:
+```bash
+export PYJAMAZ_LIB_PATH=/path/to/pyjamaz/zig-out/lib/libpyjamaz.dylib
+```
+
+See [docs/MEMORY_TESTS.md](docs/MEMORY_TESTS.md) for detailed troubleshooting.
+
 ```
 
 ---

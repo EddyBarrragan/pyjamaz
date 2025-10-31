@@ -37,6 +37,24 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(exe);
 
+    // Shared library for Python/Node.js bindings
+    const lib = b.addLibrary(.{
+        .name = "pyjamaz",
+        .linkage = .dynamic,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/api.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+        .version = .{ .major = 1, .minor = 0, .patch = 0 },
+    });
+    lib.root_module.addImport("fssimu2", fssimu2_module);
+    lib.linkSystemLibrary("vips");
+    lib.linkSystemLibrary("jpeg");
+    lib.linkSystemLibrary("dssim");
+    lib.linkLibC();
+    b.installArtifact(lib);
+
     // Run step (for `zig build run`)
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
@@ -155,4 +173,41 @@ pub fn build(b: *std.Build) void {
 
     const benchmark_step = b.step("benchmark", "Run parallel encoding performance benchmarks");
     benchmark_step.dependOn(&run_benchmark.step);
+
+    // Memory tests (Zig)
+    const memory_tests = b.addTest(.{
+        .name = "memory-tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/memory_test_root.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    memory_tests.root_module.addImport("fssimu2", fssimu2_module);
+
+    // Link C libraries for memory tests
+    memory_tests.linkSystemLibrary("vips");
+    memory_tests.linkSystemLibrary("jpeg");
+    memory_tests.linkSystemLibrary("dssim");
+    memory_tests.linkLibC();
+
+    const run_memory_tests = b.addRunArtifact(memory_tests);
+
+    // Set environment variables for vips
+    run_memory_tests.setEnvironmentVariable("VIPS_DISC_THRESHOLD", "0");
+    run_memory_tests.setEnvironmentVariable("VIPS_NOVECTOR", "1");
+
+    // Memory test step for Zig only (quick)
+    const memory_test_zig_step = b.step("memory-test-zig", "Run Zig memory tests (~1 min)");
+    memory_test_zig_step.dependOn(&run_memory_tests.step);
+
+    // Memory test step for all (Zig only by default, bindings are optional)
+    const memory_test_all_step = b.step("memory-test", "Run Zig memory tests (~1 min)");
+    memory_test_all_step.dependOn(&run_memory_tests.step);
+
+    // Note: Node.js and Python memory tests are available in:
+    // - bindings/nodejs/tests/memory/
+    // - bindings/python/tests/memory/
+    // Run them manually after setting up the respective environments.
+    // See docs/MEMORY_TESTS.md for details.
 }
