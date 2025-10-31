@@ -1,6 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
+const fs = std.fs;
 
 const types = @import("types.zig");
 const ImageBuffer = types.ImageBuffer;
@@ -12,12 +13,14 @@ const image_ops = @import("image_ops.zig");
 const codecs = @import("codecs.zig");
 const search = @import("search.zig");
 const metrics = @import("metrics.zig");
+const cache = @import("cache.zig");
+const Cache = cache.Cache;
 
 /// Represents a single encoded candidate result
 pub const EncodedCandidate = struct {
     format: ImageFormat,
     encoded_bytes: []u8, // Owned by this struct
-    file_size: u32,
+    file_size: u64, // Support large files (>4GB) - Tiger Style: explicit types
     quality: u8,
     diff_score: f64, // Stubbed to 0.0 for MVP, real metric in 0.2.0
     passed_constraints: bool,
@@ -44,6 +47,7 @@ pub const OptimizationJob = struct {
     transform_params: TransformParams,
     concurrency: u8, // Max parallel encoding tasks
     parallel_encoding: bool, // Enable parallel encoding (default: true in 0.2.0)
+    cache_ptr: ?*Cache, // Optional cache (null = caching disabled)
 
     /// Create a basic job with sensible defaults
     pub fn init(input_path: []const u8, output_path: []const u8) OptimizationJob {
@@ -57,6 +61,7 @@ pub const OptimizationJob = struct {
             .transform_params = TransformParams.init(),
             .concurrency = 4,
             .parallel_encoding = true, // v0.2.0: Enable by default
+            .cache_ptr = null, // No caching by default
         };
     }
 };
@@ -196,30 +201,312 @@ fn addOriginalCandidate(
     std.debug.assert(candidates.items.len > 0);
 }
 
+/// Optimize image from memory buffer (no temp files required)
+///
+/// Similar to optimizeImage but works directly with bytes in memory.
+/// Useful for language bindings (Python, Node.js) that already have image bytes.
+///
+/// Tiger Style: Same guarantees as optimizeImage, but avoids file I/O
+pub fn optimizeImageFromBuffer(
+    allocator: Allocator,
+    input_bytes: []const u8,
+    original_format: ImageFormat,
+    max_bytes: ?u32,
+    max_diff: ?f64,
+    metric_type: MetricType,
+    formats: []const ImageFormat,
+    concurrency: u8,
+    cache_ptr: ?*Cache,
+) !OptimizationResult {
+    // Validate inputs
+    std.debug.assert(input_bytes.len > 0);
+    std.debug.assert(formats.len > 0);
+    std.debug.assert(concurrency > 0);
+
+    const start_time = std.time.nanoTimestamp();
+
+    // Try cache first (for each format)
+    if (cache_ptr) |cache_ref| {
+        for (formats) |format| {
+            const cache_key = Cache.computeKey(
+                input_bytes,
+                max_bytes,
+                max_diff,
+                metric_type,
+                format,
+            );
+
+            if (cache_ref.get(cache_key, format)) |cached| {
+                std.log.info("Cache HIT for format {s}", .{@tagName(format)});
+
+                // Convert cached result to OptimizationResult
+                const selected = EncodedCandidate{
+                    .format = cached.metadata.format,
+                    .encoded_bytes = cached.bytes, // Transfer ownership
+                    .file_size = cached.metadata.file_size,
+                    .quality = cached.metadata.quality,
+                    .diff_score = cached.metadata.diff_score,
+                    .passed_constraints = cached.metadata.passed_constraints,
+                    .encoding_time_ns = 0, // Cached, no encoding
+                };
+
+                const total_time = @as(u64, @intCast(std.time.nanoTimestamp() - start_time));
+
+                // Return immediately with cached result
+                return .{
+                    .selected = selected,
+                    .all_candidates = &[_]EncodedCandidate{}, // Empty for cached results
+                    .timings = .{
+                        .decode_ns = 0,
+                        .encode_ns = 0,
+                        .total_ns = total_time,
+                    },
+                    .warnings = &[_][]const u8{},
+                    .success = cached.metadata.passed_constraints,
+                };
+            }
+        }
+    }
+    var warnings = ArrayList([]u8){};
+    errdefer {
+        for (warnings.items) |warning| allocator.free(warning);
+        warnings.deinit(allocator);
+    }
+
+    // Step 1: Decode and normalize from memory
+    const decode_start = std.time.nanoTimestamp();
+    var buffer = try image_ops.decodeImageFromMemory(allocator, input_bytes);
+    errdefer buffer.deinit();
+    const decode_time = @as(u64, @intCast(std.time.nanoTimestamp() - decode_start));
+
+    // Step 2: Generate candidates (parallel encoding)
+    const encode_start = std.time.nanoTimestamp();
+    var candidates = try generateCandidates(
+        allocator,
+        &buffer,
+        formats,
+        max_bytes,
+        max_diff,
+        metric_type,
+        concurrency,
+        true, // Enable parallel encoding
+        &warnings,
+    );
+    errdefer {
+        for (candidates.items) |*candidate| candidate.deinit(allocator);
+        candidates.deinit(allocator);
+    }
+    const encode_time = @as(u64, @intCast(std.time.nanoTimestamp() - encode_start));
+
+    buffer.deinit(); // No longer needed
+
+    // Step 2.5: Add original bytes as baseline candidate
+    const original_bytes_copy = try allocator.dupe(u8, input_bytes);
+    const original_candidate = EncodedCandidate{
+        .format = original_format,
+        .encoded_bytes = original_bytes_copy,
+        .file_size = @intCast(original_bytes_copy.len),
+        .quality = 100, // Original quality
+        .diff_score = 0.0, // Perfect match to original
+        .passed_constraints = if (max_bytes) |max| original_bytes_copy.len <= max else true,
+        .encoding_time_ns = 0, // No encoding needed
+    };
+    try candidates.append(allocator, original_candidate);
+
+    // Step 3: Select best candidate
+    const selected = try selectBestCandidate(
+        allocator,
+        candidates.items,
+        max_bytes,
+        max_diff,
+    );
+
+    const total_time = @as(u64, @intCast(std.time.nanoTimestamp() - start_time));
+
+    // Store result in cache if enabled and successful
+    if (cache_ptr) |cache_ref| {
+        if (selected) |sel| {
+            const cache_key = Cache.computeKey(
+                input_bytes,
+                max_bytes,
+                max_diff,
+                metric_type,
+                sel.format,
+            );
+
+            const metadata = cache.CacheMetadata{
+                .format = sel.format,
+                .file_size = sel.file_size,
+                .quality = sel.quality,
+                .diff_score = sel.diff_score,
+                .passed_constraints = sel.passed_constraints,
+                .timestamp = std.time.timestamp(),
+                .access_count = 0,
+            };
+
+            cache_ref.put(cache_key, sel.format, sel.encoded_bytes, metadata) catch |err| {
+                std.log.warn("Failed to cache result: {}", .{err});
+                // Continue anyway - caching is optional
+            };
+        }
+    }
+
+    return .{
+        .selected = selected,
+        .all_candidates = try candidates.toOwnedSlice(allocator),
+        .timings = .{
+            .decode_ns = decode_time,
+            .encode_ns = encode_time,
+            .total_ns = total_time,
+        },
+        .warnings = @ptrCast(try warnings.toOwnedSlice(allocator)),
+        .success = selected != null,
+    };
+}
+
+/// Try to get cached result for optimization job
+///
+/// Tiger Style: Bounded iteration over formats, ≤70 lines
+fn tryCacheHit(
+    allocator: Allocator,
+    job: OptimizationJob,
+    start_time: i128,
+) !?OptimizationResult {
+    // Pre-conditions
+    std.debug.assert(job.formats.len > 0);
+    std.debug.assert(job.input_path.len > 0);
+
+    const cache_ref = job.cache_ptr orelse return null;
+
+    const input_bytes = fs.cwd().readFileAlloc(
+        allocator,
+        job.input_path,
+        100 * 1024 * 1024, // Max 100MB
+    ) catch return null;
+    defer allocator.free(input_bytes);
+
+    // Tiger Style: Bounded loop over formats
+    for (job.formats) |format| {
+        const cache_key = Cache.computeKey(
+            input_bytes,
+            job.max_bytes,
+            job.max_diff,
+            job.metric_type,
+            format,
+        );
+
+        if (cache_ref.get(cache_key, format)) |cached| {
+            std.log.info("Cache HIT for {s} (format: {s})", .{ job.input_path, @tagName(format) });
+
+            const selected = EncodedCandidate{
+                .format = cached.metadata.format,
+                .encoded_bytes = cached.bytes,
+                .file_size = cached.metadata.file_size,
+                .quality = cached.metadata.quality,
+                .diff_score = cached.metadata.diff_score,
+                .passed_constraints = cached.metadata.passed_constraints,
+                .encoding_time_ns = 0,
+            };
+
+            const total_time = @as(u64, @intCast(std.time.nanoTimestamp() - start_time));
+
+            return OptimizationResult{
+                .selected = selected,
+                .all_candidates = &[_]EncodedCandidate{},
+                .timings = .{
+                    .decode_ns = 0,
+                    .encode_ns = 0,
+                    .total_ns = total_time,
+                },
+                .warnings = &[_][]const u8{},
+                .success = cached.metadata.passed_constraints,
+            };
+        }
+    }
+
+    // Post-condition: No cache hit found
+    return null;
+}
+
+/// Store optimized result in cache if enabled
+///
+/// Tiger Style: ≤70 lines, graceful degradation on failure
+fn storeCacheResult(
+    allocator: Allocator,
+    job: OptimizationJob,
+    selected: EncodedCandidate,
+) void {
+    // Pre-condition
+    std.debug.assert(selected.encoded_bytes.len > 0);
+
+    const cache_ref = job.cache_ptr orelse return;
+
+    // Read file for cache key computation
+    const input_bytes = fs.cwd().readFileAlloc(
+        allocator,
+        job.input_path,
+        100 * 1024 * 1024,
+    ) catch |err| {
+        std.log.warn("Failed to read file for caching: {}", .{err});
+        return;
+    };
+    defer allocator.free(input_bytes);
+
+    const cache_key = Cache.computeKey(
+        input_bytes,
+        job.max_bytes,
+        job.max_diff,
+        job.metric_type,
+        selected.format,
+    );
+
+    const metadata = cache.CacheMetadata{
+        .format = selected.format,
+        .file_size = selected.file_size,
+        .quality = selected.quality,
+        .diff_score = selected.diff_score,
+        .passed_constraints = selected.passed_constraints,
+        .timestamp = std.time.timestamp(),
+        .access_count = 0,
+    };
+
+    cache_ref.put(cache_key, selected.format, selected.encoded_bytes, metadata) catch |err| {
+        std.log.warn("Failed to cache result: {}", .{err});
+        // Continue anyway - caching is optional
+    };
+
+    // Post-condition: Cache storage attempted (may have failed gracefully)
+}
+
 /// Main optimization function - orchestrates the entire pipeline
 ///
 /// Steps:
-/// 1. Decode and normalize input image
-/// 2. Generate candidates in parallel (one per format)
+/// 1. Try cache first
+/// 2. Decode and generate candidates
 /// 3. Add original file as baseline
-/// 4. Select best passing candidate
-/// 5. Return detailed result
+/// 4. Select best candidate and cache result
 ///
 /// Tiger Style:
-/// - Bounded parallelism (job.concurrency)
+/// - ≤70 lines (extracts helpers)
+/// - Bounded operations
 /// - Explicit error handling
-/// - Function ≤70 lines (extracts helpers)
 pub fn optimizeImage(
     allocator: Allocator,
     job: OptimizationJob,
 ) !OptimizationResult {
-    // Validate inputs
+    // Pre-conditions
     std.debug.assert(job.formats.len > 0);
     std.debug.assert(job.concurrency > 0);
     std.debug.assert(job.input_path.len > 0);
     std.debug.assert(job.output_path.len > 0);
 
     const start_time = std.time.nanoTimestamp();
+
+    // Try cache first
+    if (try tryCacheHit(allocator, job, start_time)) |cached_result| {
+        return cached_result;
+    }
+
     var warnings = ArrayList([]u8){};
     errdefer {
         for (warnings.items) |warning| allocator.free(warning);
@@ -266,7 +553,13 @@ pub fn optimizeImage(
 
     const total_time = @as(u64, @intCast(std.time.nanoTimestamp() - start_time));
 
-    return .{
+    // Store result in cache if enabled and successful
+    if (selected) |sel| {
+        storeCacheResult(allocator, job, sel);
+    }
+
+    // Post-condition: Return complete result
+    return OptimizationResult{
         .selected = selected,
         .all_candidates = try candidates.toOwnedSlice(allocator),
         .timings = .{
@@ -630,7 +923,7 @@ fn encodeCandidateForFormat(
     }
 
     const encode_time = @as(u64, @intCast(std.time.nanoTimestamp() - encode_start));
-    const file_size: u32 = @intCast(encoded_bytes.len);
+    const file_size: u64 = @intCast(encoded_bytes.len);
 
     // Post-condition: encoded data is valid
     std.debug.assert(encoded_bytes.len > 0);
@@ -814,6 +1107,8 @@ test "selectBestCandidate: picks smallest passing candidate" {
         null,
         null,
     );
+    // selectBestCandidate clones the bytes, so we must free them
+    defer if (best) |b| testing.allocator.free(b.encoded_bytes);
 
     try testing.expect(best != null);
     try testing.expectEqual(@as(u32, 800), best.?.file_size);
@@ -889,6 +1184,8 @@ test "selectBestCandidate: format tiebreak" {
         null,
         null,
     );
+    // selectBestCandidate clones the bytes, so we must free them
+    defer if (best) |b| testing.allocator.free(b.encoded_bytes);
 
     try testing.expect(best != null);
     // WebP preferred over PNG at same size

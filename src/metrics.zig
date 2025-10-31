@@ -2,9 +2,8 @@
 //!
 //! This module provides perceptual diff scoring to ensure optimized images
 //! maintain visual quality. Supported metrics:
-//! - Butteraugli (psychovisual distance) - STUB, not implemented
 //! - DSSIM (structural similarity) - v0.4.0
-//! - SSIMULACRA2 (perceptual similarity) - v0.5.0
+//! - SSIMULACRA2 (perceptual similarity) - v0.5.0, recommended
 //!
 //! Tiger Style: Bounded operations, explicit error handling
 
@@ -24,10 +23,9 @@ pub const MetricError = error{
 
 /// Supported perceptual metrics
 pub const MetricType = enum {
-    butteraugli, // STUB - not implemented (use ssimulacra2 instead)
     dssim, // v0.4.0 - Structural dissimilarity
     ssimulacra2, // v0.5.0 - Perceptual similarity (recommended)
-    none, // For MVP - no perceptual checking
+    none, // No perceptual checking
 };
 
 /// Compute perceptual difference between two images
@@ -35,8 +33,8 @@ pub const MetricType = enum {
 /// Returns a score where:
 /// - 0.0 = identical images
 /// - Higher values = more perceptual difference
-/// - Butteraugli: values > 1.5 are usually noticeable
 /// - DSSIM: values > 0.01 are usually noticeable
+/// - SSIMULACRA2: values < 0.002 are excellent quality (~score 90+)
 ///
 /// Tiger Style:
 /// - Pre-condition: Images must have same dimensions
@@ -62,15 +60,14 @@ pub fn computePerceptualDiff(
     const MAX_PIXELS: u64 = 500_000_000; // 500 megapixels
     const total_pixels: u64 = @as(u64, baseline.width) * @as(u64, baseline.height);
     if (total_pixels > MAX_PIXELS) {
-        std.log.err("Image too large for perceptual diff: {d} pixels (max: {d})", .{ total_pixels, MAX_PIXELS });
+        std.log.warn("Image too large for perceptual diff: {d} pixels (max: {d})", .{ total_pixels, MAX_PIXELS });
         return MetricError.InvalidImage;
     }
 
     const result = switch (metric) {
-        .butteraugli => try computeButteraugli(allocator, baseline, candidate),
         .dssim => try computeDSSIM(allocator, baseline, candidate),
         .ssimulacra2 => try computeSSIMULACRA2(allocator, baseline, candidate),
-        .none => 0.0, // MVP: no perceptual checking
+        .none => 0.0, // No perceptual checking
     };
 
     // Post-conditions: Validate result (Tiger Style)
@@ -79,39 +76,6 @@ pub fn computePerceptualDiff(
     std.debug.assert(!std.math.isInf(result)); // Not infinite
 
     return result;
-}
-
-/// Compute Butteraugli psychovisual distance
-///
-/// Returns distance where:
-/// - 0.0 = identical
-/// - 0.0-1.0 = barely noticeable
-/// - 1.0-1.5 = small differences
-/// - 1.5+ = noticeable differences
-/// - 3.0+ = very noticeable
-///
-/// Tiger Style: Bounded iteration, explicit memory management
-///
-/// NOTE: This is a STUB implementation for v0.3.0 MVP.
-/// Butteraugli FFI is not yet implemented. Use metric_type=.none to bypass.
-fn computeButteraugli(
-    allocator: Allocator,
-    baseline: *const ImageBuffer,
-    candidate: *const ImageBuffer,
-) MetricError!f64 {
-    _ = allocator;
-
-    // Tiger Style: Fail loudly for unimplemented features
-    // Returning 0.0 would falsely indicate "perfect match" and bypass quality constraints
-    std.log.err("Butteraugli not implemented. Set metric_type=.none to bypass quality checks.", .{});
-    std.log.err("Baseline: {d}x{d}, Candidate: {d}x{d}", .{
-        baseline.width,
-        baseline.height,
-        candidate.width,
-        candidate.height,
-    });
-
-    return MetricError.UnsupportedMetric;
 }
 
 /// Compute DSSIM (structural dissimilarity)
@@ -168,7 +132,6 @@ fn computeSSIMULACRA2(
 /// These are conservative values - most users want higher quality
 pub fn getRecommendedThreshold(metric: MetricType) f64 {
     return switch (metric) {
-        .butteraugli => 1.5, // Noticeable difference threshold
         .dssim => 0.01, // Small difference threshold
         .ssimulacra2 => 0.002, // Converted from score ~90 (acceptable quality)
         .none => std.math.floatMax(f64), // Effectively disabled
@@ -182,7 +145,6 @@ pub fn getRecommendedThreshold(metric: MetricType) f64 {
 test "getRecommendedThreshold returns sensible values" {
     const testing = std.testing;
 
-    try testing.expectApproxEqAbs(1.5, getRecommendedThreshold(.butteraugli), 0.01);
     try testing.expectApproxEqAbs(0.01, getRecommendedThreshold(.dssim), 0.001);
     try testing.expectApproxEqAbs(0.002, getRecommendedThreshold(.ssimulacra2), 0.0001);
     try testing.expect(getRecommendedThreshold(.none) > 1000.0);
@@ -242,34 +204,6 @@ test "computePerceptualDiff with none metric returns 0.0" {
 
     const diff = try computePerceptualDiff(allocator, &baseline, &candidate, .none);
     try testing.expectEqual(@as(f64, 0.0), diff);
-}
-
-test "computePerceptualDiff with butteraugli stub returns UnsupportedMetric" {
-    const testing = std.testing;
-    const allocator = testing.allocator;
-
-    var baseline = ImageBuffer{
-        .data = &[_]u8{},
-        .width = 100,
-        .height = 100,
-        .stride = 300,
-        .channels = 3,
-        .allocator = allocator,
-        .color_space = 0,
-    };
-
-    var candidate = ImageBuffer{
-        .data = &[_]u8{},
-        .width = 100,
-        .height = 100,
-        .stride = 300,
-        .channels = 3,
-        .allocator = allocator,
-        .color_space = 0,
-    };
-
-    const result = computePerceptualDiff(allocator, &baseline, &candidate, .butteraugli);
-    try testing.expectError(MetricError.UnsupportedMetric, result);
 }
 
 test "computePerceptualDiff validates image size limits" {

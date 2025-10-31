@@ -9,8 +9,8 @@ pub const SearchOptions = struct {
     max_iterations: u8 = 7,
     /// Tolerance percentage (e.g., 0.01 for 1%)
     tolerance: f32 = 0.01,
-    /// Minimum quality to try
-    quality_min: u8 = 0,
+    /// Minimum quality to try (1-100, JPEG encoders reject 0)
+    quality_min: u8 = 1,
     /// Maximum quality to try
     quality_max: u8 = 100,
     /// Maximum encode time in milliseconds (warning threshold)
@@ -51,6 +51,8 @@ pub fn binarySearchQuality(
 ) !SearchResult {
     // Tiger Style: Assertions for pre-conditions
     std.debug.assert(opts.quality_min <= opts.quality_max);
+    std.debug.assert(opts.quality_min >= 1); // JPEG/WebP/AVIF reject quality=0
+    std.debug.assert(opts.quality_max <= 100);
     std.debug.assert(opts.max_iterations > 0);
     std.debug.assert(target_bytes > 0);
     std.debug.assert(opts.tolerance > 0.0 and opts.tolerance < 1.0);
@@ -65,14 +67,8 @@ pub fn binarySearchQuality(
     var best_size: u32 = std.math.maxInt(u32);
     var best_distance: u32 = std.math.maxInt(u32);
 
-    defer {
-        // Only free if we didn't return it
-        if (best_encoded) |encoded| {
-            if (best_quality != q_min or iteration == 0) {
-                allocator.free(encoded);
-            }
-        }
-    }
+    // Note: We transfer ownership of best_encoded to the caller via SearchResult.
+    // The only error path (BudgetNotMet) frees best_encoded explicitly on line 173.
 
     // Tiger Style: Bounded loop with invariants
     while (iteration < opts.max_iterations and q_min <= q_max) : (iteration += 1) {
@@ -153,7 +149,8 @@ pub fn binarySearchQuality(
 
         // Post-iteration invariant
         std.debug.assert(q_min <= opts.quality_max + 1);
-        std.debug.assert(q_max >= opts.quality_min - 1);
+        // Avoid underflow: q_max can be at most 1 below quality_min
+        std.debug.assert(q_max + 1 >= opts.quality_min);
     }
 
     // Tiger Style: Post-loop assertions
@@ -203,7 +200,8 @@ test "binarySearchQuality: converges to target size" {
     }
 
     // Search for a target size (this is approximate, actual size varies by codec)
-    const target_bytes: u32 = 500;
+    // Note: 10x10 JPEG has ~800 byte minimum due to headers, so target 850 bytes
+    const target_bytes: u32 = 850;
     const result = try binarySearchQuality(
         testing.allocator,
         buffer,
@@ -218,8 +216,9 @@ test "binarySearchQuality: converges to target size" {
     try testing.expect(result.quality >= 0 and result.quality <= 100);
     try testing.expect(result.iterations > 0 and result.iterations <= 7);
 
-    // The result should be reasonably close to target (within 50% for this test)
-    const max_distance = target_bytes / 2;
+    // The result should be reasonably close to target
+    // (within 100 bytes for this small test image)
+    const max_distance: u32 = 100;
     const distance = if (result.size > target_bytes)
         result.size - target_bytes
     else

@@ -1,6 +1,6 @@
 # Source Code Implementation Guide
 
-**Purpose**: Implementation patterns, code organization, and Zig-specific guidelines for your project's source code.
+**Purpose**: Quick reference for implementation patterns, code organization, and Zig-specific guidelines.
 
 ---
 
@@ -8,896 +8,339 @@
 
 1. [Source Organization](#source-organization)
 2. [Tiger Style Enforcement](#tiger-style-enforcement)
-3. [Zig Implementation Patterns](#zig-implementation-patterns)
-4. [Common Code Patterns](#common-code-patterns)
+3. [Type Conventions](#type-conventions)
+4. [Memory Management](#memory-management)
 5. [Error Handling](#error-handling)
-6. [Memory Management](#memory-management)
-7. [Testing Patterns](#testing-patterns)
-8. [Performance Considerations](#performance-considerations)
-9. [WebAssembly Considerations](#webassembly-considerations) (if applicable)
+6. [Testing](#testing)
+7. [Documentation Updates](#documentation-updates)
 
 ---
 
 ## Source Organization
 
 ### Directory Structure
+- `src/main.zig` - Entry point
+- `src/[module]/` - Feature modules (one per directory)
+- `src/test/unit/` - Unit tests (mirrors src/ structure)
+- `src/test/integration/` - Integration tests
+- `src/test/benchmark/` - Performance tests
 
-```
-src/
-├── main.zig              # Entry point
-├── CLAUDE.md             # This file
-├── [module1]/            # Feature modules
-│   ├── core.zig         # Core functionality
-│   ├── types.zig        # Type definitions
-│   └── utils.zig        # Utilities
-├── [module2]/            # Another module
-│   └── ...
-└── test/                 # All tests
-    ├── unit/            # Unit tests (mirrors src/)
-    │   ├── [module1]/
-    │   └── [module2]/
-    ├── integration/     # Integration tests
-    └── benchmark/       # Performance benchmarks
-```
-
-### File Organization Principles
-
-1. **One module per directory**: Group related functionality
-2. **Mirror test structure**: `src/foo/bar.zig` → `src/test/unit/foo/bar_test.zig`
-3. **Keep files focused**: Each file has a single, clear purpose
-4. **Public API first**: Export functions/types at top of file
-
-### Module Template
-
-```zig
-//! Brief module description.
-//!
-//! Detailed explanation of what this module does,
-//! how it fits into the system, and any important notes.
-
-const std = @import("std");
-const Allocator = std.mem.Allocator;
-
-// Import other modules
-const OtherModule = @import("../other_module/core.zig");
-
-// Public types
-pub const MyType = struct {
-    field1: u32,
-    field2: []const u8,
-
-    /// Creates a new instance.
-    /// Caller owns returned memory and must call `deinit()`.
-    pub fn init(allocator: Allocator, value: u32) !MyType {
-        // Implementation
-    }
-
-    pub fn deinit(self: *MyType, allocator: Allocator) void {
-        // Cleanup
-    }
-};
-
-// Public functions
-pub fn myFunction(input: []const u8) !Result {
-    // Implementation
-}
-
-// Internal/private functions (not exported)
-fn helperFunction(data: []const u8) u32 {
-    // Implementation
-}
-
-// Tests (inline with source)
-test "MyType.init creates valid instance" {
-    const testing = std.testing;
-    // Test implementation
-}
-```
+### File Organization
+- **One module per directory** - Group related functionality
+- **Mirror test structure** - `src/foo/bar.zig` → `src/test/unit/foo/bar_test.zig`
+- **Keep files focused** - Single, clear purpose per file
+- **Public API first** - Export functions/types at top
 
 ---
 
 ## Tiger Style Enforcement
 
 ### The Four Pillars
+1. **Safety First** - 2+ assertions per function
+2. **Predictable Performance** - Bounded loops, known complexity
+3. **Developer Experience** - ≤70 lines per function, clear naming
+4. **Zero Dependencies** - Only Zig stdlib (except system libraries)
 
-1. **Safety First** (2+ assertions per function)
-2. **Predictable Performance** (bounded loops, known complexity)
-3. **Developer Experience** (≤70 lines, clear naming)
-4. **Zero Dependencies** (only Zig stdlib)
+### Safety Requirements
 
-### Safety First: Assertions
+**Assertions (2+ per function)**:
+- Pre-conditions - Validate inputs
+- Post-conditions - Validate outputs
+- Invariants - Validate state throughout
+- Post-loop - Verify loop termination
 
-**Every function needs 2+ assertions**:
+**Bounded Loops**:
+- ❌ `while (condition)` - Could run forever
+- ✅ `while (i < MAX and condition) : (i += 1)` - Explicit upper bound
+- Always assert after loops: `std.debug.assert(i <= MAX);`
 
-```zig
-pub fn processData(allocator: Allocator, data: []const u8, count: u32) !Result {
-    // Pre-conditions (what must be true on entry)
-    std.debug.assert(data.len > 0); // #1: Non-empty input
-    std.debug.assert(count <= data.len); // #2: Count within bounds
-
-    // ... implementation ...
-
-    // Post-conditions (what must be true before return)
-    std.debug.assert(result.isValid()); // #3: Result is well-formed
-    return result;
-}
-```
-
-**Types of Assertions**:
-
-1. **Pre-conditions**: Validate inputs
-   ```zig
-   std.debug.assert(ptr != null);
-   std.debug.assert(size > 0);
-   std.debug.assert(index < array.len);
-   ```
-
-2. **Post-conditions**: Validate outputs
-   ```zig
-   std.debug.assert(result != null);
-   std.debug.assert(bytes_written == expected);
-   std.debug.assert(list.items.len > 0);
-   ```
-
-3. **Invariants**: Validate state
-   ```zig
-   std.debug.assert(self.count <= self.capacity);
-   std.debug.assert(self.state == .Valid);
-   std.debug.assert(self.lock_count >= 0);
-   ```
-
-4. **Post-loop**: Verify loop termination
-   ```zig
-   var i: u32 = 0;
-   while (i < max_items) : (i += 1) {
-       // Process item
-   }
-   std.debug.assert(i == max_items); // Always verify!
-   ```
-
-### Predictable Performance: Bounded Loops
-
-**❌ NEVER write unbounded loops**:
-```zig
-// ❌ BAD: What if condition never becomes false?
-while (condition) {
-    // Could run forever
-}
-```
-
-**✅ ALWAYS bound loops explicitly**:
-```zig
-// ✅ GOOD: Explicit upper bound
-var i: usize = 0;
-const MAX_ITERATIONS: usize = 1000;
-while (i < items.len and i < MAX_ITERATIONS) : (i += 1) {
-    // Process item
-}
-std.debug.assert(i <= MAX_ITERATIONS); // Post-condition
-```
-
-**Common Patterns**:
-
-1. **Array iteration** (naturally bounded)
-   ```zig
-   for (items) |item| {
-       // Process item - bounded by array length
-   }
-   ```
-
-2. **Conditional iteration** (with explicit limit)
-   ```zig
-   var i: usize = 0;
-   while (i < items.len and !found) : (i += 1) {
-       if (matches(items[i])) found = true;
-   }
-   std.debug.assert(i <= items.len);
-   ```
-
-3. **Search iteration** (with timeout)
-   ```zig
-   var attempts: u32 = 0;
-   const MAX_ATTEMPTS: u32 = 10;
-   while (attempts < MAX_ATTEMPTS and !success) : (attempts += 1) {
-       success = tryOperation();
-   }
-   std.debug.assert(attempts <= MAX_ATTEMPTS);
-   ```
-
-### Developer Experience: Function Size
-
-**Keep functions ≤70 lines**:
-
-```zig
-// ❌ BAD: 150-line function doing many things
-pub fn processEverything(data: []const u8) !void {
-    // 150 lines of mixed concerns
-}
-
-// ✅ GOOD: Break into focused functions
-pub fn processEverything(data: []const u8) !void {
-    const validated = try validateInput(data);
-    const parsed = try parseData(validated);
-    const transformed = try transformData(parsed);
-    try writeOutput(transformed);
-}
-
-fn validateInput(data: []const u8) !ValidatedData {
-    // 20 lines - focused on validation
-}
-
-fn parseData(validated: ValidatedData) !ParsedData {
-    // 30 lines - focused on parsing
-}
-
-fn transformData(parsed: ParsedData) !TransformedData {
-    // 40 lines - focused on transformation
-}
-
-fn writeOutput(transformed: TransformedData) !void {
-    // 15 lines - focused on output
-}
-```
-
-### Zero Dependencies
-
-**Only use Zig standard library**:
-
-```zig
-// ✅ GOOD: Standard library only
-const std = @import("std");
-const ArrayList = std.ArrayList;
-const HashMap = std.AutoHashMap;
-
-// ❌ BAD: External dependency (unless absolutely justified)
-// const external = @import("some_package");
-```
-
-**If you must add a dependency**:
-1. Document WHY in README.md
-2. List in build.zig with version pinning
-3. Evaluate alternatives first
-4. Consider implementing yourself if simple
+**Function Size**:
+- ≤70 lines per function
+- Break large functions into focused smaller ones
+- Each function should do one thing well
 
 ---
 
-## Zig Implementation Patterns
+## Type Conventions
 
-### Type Conventions
+### Use Explicit Types
+- ✅ `const count: u32 = 100;` - Platform-independent
+- ✅ `const size_bytes: u64 = 1024 * 1024;` - Clear intent
+- ❌ `const count: usize = 100;` - Changes between 32/64-bit
 
-**Use explicit types, avoid `usize`**:
-
-```zig
-// ✅ GOOD: Explicit, platform-independent
-const count: u32 = 100;
-const index: u32 = 0;
-const size_bytes: u64 = 1024 * 1024; // 1MB
-
-// ❌ AVOID: Architecture-dependent (32-bit vs 64-bit)
-const count: usize = 100; // Changes between platforms
-```
-
-**When to use `usize`**:
+### When to Use `usize`
 - Memory addresses: `@intFromPtr()`, `@ptrFromInt()`
 - Array/slice lengths: `array.len` returns `usize`
 - Allocator APIs: `allocator.alloc()` takes `usize`
-
-**Pattern**: Use `u32` for business logic, cast to `usize` only when calling stdlib:
-
-```zig
-const item_count: u32 = 1000; // Business logic
-
-// Cast to usize only at API boundary
-const items = try allocator.alloc(Item, @intCast(item_count));
-```
-
-### Memory Ownership Patterns
-
-#### Pattern 1: Caller-Allocated (Preferred)
-
-**Pros**: No allocations, no cleanup, fast
-**Cons**: Caller must provide buffer
-
-```zig
-/// Formats data into provided buffer.
-/// Returns number of bytes written.
-pub fn format(data: Data, buffer: []u8) !usize {
-    std.debug.assert(buffer.len > 0);
-    std.debug.assert(buffer.len >= estimateSize(data));
-
-    // Write into buffer
-    const written = // ... format data ...
-
-    std.debug.assert(written <= buffer.len);
-    return written;
-}
-
-// Usage
-var buffer: [1024]u8 = undefined;
-const written = try format(data, &buffer);
-const result = buffer[0..written];
-```
-
-#### Pattern 2: Function-Allocated (Common)
-
-**Pros**: Convenient for caller
-**Cons**: Caller must free, risk of leaks
-
-```zig
-/// Allocates and returns formatted data.
-/// Caller owns returned slice and must free it.
-pub fn allocAndFormat(allocator: Allocator, data: Data) ![]u8 {
-    std.debug.assert(@intFromPtr(allocator.vtable) != 0); // Valid allocator
-
-    const size = estimateSize(data);
-    const buffer = try allocator.alloc(u8, size);
-
-    const written = try format(data, buffer);
-    std.debug.assert(written <= buffer.len);
-
-    return buffer[0..written];
-}
-
-// Usage
-const result = try allocAndFormat(allocator, data);
-defer allocator.free(result); // Caller must free!
-```
-
-#### Pattern 3: Arena-Allocated (Best for Batches)
-
-**Pros**: Batch cleanup, no individual frees
-**Cons**: Memory held until arena deinit
-
-```zig
-pub fn processBatch(allocator: Allocator, items: []Item) !Result {
-    // Create arena for all temporary allocations
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit(); // All allocations freed at once
-    const arena_alloc = arena.allocator();
-
-    // All these allocations freed on scope exit
-    const temp1 = try arena_alloc.alloc(u8, 100);
-    const temp2 = try processItem(arena_alloc, items[0]);
-    // ... more processing ...
-
-    // Return value uses original allocator (lives beyond function)
-    return Result.init(allocator, final_data);
-}
-```
-
-### Struct Patterns
-
-#### Pattern 1: Simple Value Type
-
-```zig
-/// Simple data holder, no cleanup needed.
-pub const Point = struct {
-    x: f64,
-    y: f64,
-
-    pub fn init(x: f64, y: f64) Point {
-        return .{ .x = x, .y = y };
-    }
-
-    pub fn distance(self: Point, other: Point) f64 {
-        const dx = self.x - other.x;
-        const dy = self.y - other.y;
-        return @sqrt(dx * dx + dy * dy);
-    }
-};
-```
-
-#### Pattern 2: Resource-Owning Type
-
-```zig
-/// Owns allocated resources, requires cleanup.
-pub const Buffer = struct {
-    data: []u8,
-    allocator: Allocator,
-
-    /// Creates buffer with given size.
-    /// Caller must call `deinit()` when done.
-    pub fn init(allocator: Allocator, size: usize) !Buffer {
-        std.debug.assert(size > 0);
-
-        const data = try allocator.alloc(u8, size);
-        std.debug.assert(data.len == size);
-
-        return Buffer{
-            .data = data,
-            .allocator = allocator,
-        };
-    }
-
-    /// Frees all resources.
-    pub fn deinit(self: *Buffer) void {
-        std.debug.assert(self.data.len > 0);
-        self.allocator.free(self.data);
-        self.* = undefined; // Poison pointer
-    }
-};
-```
-
-#### Pattern 3: Iterator Type
-
-```zig
-/// Iterator over items, no allocations.
-pub const ItemIterator = struct {
-    items: []const Item,
-    index: usize,
-
-    pub fn init(items: []const Item) ItemIterator {
-        return .{ .items = items, .index = 0 };
-    }
-
-    pub fn next(self: *ItemIterator) ?Item {
-        if (self.index >= self.items.len) return null;
-
-        const item = self.items[self.index];
-        self.index += 1;
-
-        std.debug.assert(self.index <= self.items.len);
-        return item;
-    }
-};
-```
-
----
-
-## Common Code Patterns
-
-### Pattern: Allocation with Cleanup
-
-```zig
-pub fn processFile(allocator: Allocator, path: []const u8) !Result {
-    std.debug.assert(path.len > 0);
-
-    // Allocate
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close(); // Cleanup on all paths
-
-    const contents = try file.readToEndAlloc(allocator, 1_000_000);
-    defer allocator.free(contents); // Cleanup on all paths
-
-    // Process
-    const result = try parse(allocator, contents);
-
-    std.debug.assert(result.isValid());
-    return result;
-}
-```
-
-### Pattern: Error Context
-
-```zig
-pub fn parseData(data: []const u8) !ParsedData {
-    std.debug.assert(data.len > 0);
-
-    var parser = Parser.init(data);
-    return parser.parse() catch |err| {
-        // Add context before propagating
-        std.log.err("Parse failed at offset {}: {}", .{
-            parser.current_offset,
-            err,
-        });
-        return err;
-    };
-}
-```
-
-### Pattern: Result with Validation
-
-```zig
-pub fn createThing(allocator: Allocator, config: Config) !Thing {
-    std.debug.assert(config.isValid());
-
-    const thing = Thing{
-        .field1 = try allocate(allocator, config.size),
-        .field2 = config.value,
-    };
-
-    // Validate result before returning
-    std.debug.assert(thing.field1.len == config.size);
-    std.debug.assert(thing.field2 == config.value);
-
-    return thing;
-}
-```
-
-### Pattern: Optional with Assertion
-
-```zig
-pub fn findItem(items: []const Item, id: u32) ?Item {
-    std.debug.assert(items.len > 0); // Pre-condition
-
-    for (items) |item| {
-        if (item.id == id) {
-            std.debug.assert(item.isValid()); // Found item is valid
-            return item;
-        }
-    }
-
-    return null; // Not found
-}
-```
-
----
-
-## Error Handling
-
-### Error Set Definition
-
-```zig
-pub const Error = error{
-    OutOfMemory,
-    InvalidInput,
-    NotFound,
-    OperationFailed,
-};
-```
-
-### Error Handling Patterns
-
-#### Pattern 1: Propagate (Default)
-
-```zig
-pub fn outer() !Result {
-    const inner_result = try inner(); // Propagate on error
-    return process(inner_result);
-}
-```
-
-#### Pattern 2: Handle Specific Errors
-
-```zig
-pub fn outer() !Result {
-    const inner_result = inner() catch |err| switch (err) {
-        error.NotFound => return Result.empty(),
-        error.InvalidInput => {
-            std.log.warn("Invalid input, using default", .{});
-            return Result.default();
-        },
-        else => return err, // Propagate others
-    };
-
-    return process(inner_result);
-}
-```
-
-#### Pattern 3: Convert Errors
-
-```zig
-pub fn outer() !Result {
-    const inner_result = inner() catch |err| {
-        std.log.err("Inner failed: {}", .{err});
-        return error.OperationFailed; // Convert to domain error
-    };
-
-    return process(inner_result);
-}
-```
-
-#### Pattern 4: Critical Section (Use Sparingly)
-
-```zig
-pub fn initGlobal() void {
-    // Only use `unreachable` when you can PROVE it won't fail
-    global = allocate() catch unreachable; // Must succeed or program is broken
-}
-```
+- **Pattern**: Use `u32` for business logic, cast to `usize` at API boundaries
 
 ---
 
 ## Memory Management
 
-### The Golden Rules
-
-1. **Explicit allocators**: Every allocation takes an `Allocator` parameter
-2. **Clear ownership**: Document who owns memory in function comments
-3. **Defer cleanup**: Use `defer` for cleanup immediately after allocation
-4. **Arena for batches**: Use `ArenaAllocator` for many small allocations
-
 ### Allocator Patterns
 
-#### Pattern 1: General Purpose Allocator (GPA)
+**1. General Purpose Allocator (GPA)**
+- Use for: Long-lived allocations, variable sizes
+- Cleanup: Individual `free()` calls required
 
-**Use when**: Long-lived allocations, variable sizes, need to free individually
+**2. Arena Allocator**
+- Use for: Many small allocations, batch cleanup
+- Cleanup: Single `arena.deinit()` frees everything
+- Best for: Temporary allocations in function scope
 
-```zig
-var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-defer _ = gpa.deinit();
-const allocator = gpa.allocator();
+**3. Fixed Buffer Allocator**
+- Use for: Stack-based allocation, known max size
+- Cleanup: None needed (stack-allocated buffer)
 
-const items = try allocator.alloc(Item, 100);
-defer allocator.free(items);
-```
+### Memory Ownership
 
-#### Pattern 2: Arena Allocator
+**Caller-Allocated (Preferred)**:
+- Pros: No allocations, fast
+- Cons: Caller provides buffer
+- Example: `fn format(data: Data, buffer: []u8) !usize`
 
-**Use when**: Many small allocations, batch cleanup
+**Function-Allocated**:
+- Pros: Convenient
+- Cons: Caller must free
+- Example: `fn allocAndFormat(allocator: Allocator, data: Data) ![]u8`
+- Document: "Caller owns returned memory and must free it"
 
-```zig
-var arena = std.heap.ArenaAllocator.init(parent_allocator);
-defer arena.deinit(); // Frees everything at once
-const allocator = arena.allocator();
-
-// No need for individual `defer free()` calls
-const temp1 = try allocator.alloc(u8, 100);
-const temp2 = try allocator.alloc(u8, 200);
-const temp3 = try allocator.alloc(u8, 300);
-// All freed on arena.deinit()
-```
-
-#### Pattern 3: Fixed Buffer Allocator
-
-**Use when**: Stack-based allocation, known max size
-
-```zig
-var buffer: [4096]u8 = undefined;
-var fba = std.heap.FixedBufferAllocator.init(&buffer);
-const allocator = fba.allocator();
-
-// Allocations come from stack buffer
-const items = try allocator.alloc(Item, 10);
-// No free needed - buffer is stack-allocated
-```
+**Arena-Allocated**:
+- Pros: Batch cleanup, no individual frees
+- Cons: Memory held until arena deinit
+- Use for: Multiple temporary allocations in one function
 
 ### Memory Leak Detection
-
-**Use testing.allocator in tests**:
-
-```zig
-test "no memory leaks" {
-    const allocator = std.testing.allocator;
-
-    // Run operation 1000 times
-    var i: usize = 0;
-    while (i < 1000) : (i += 1) {
-        const thing = try createThing(allocator);
-        defer thing.deinit(allocator);
-        // Use thing...
-    }
-
-    // testing.allocator will fail if there are leaks
-}
-```
+- Use `testing.allocator` in all tests
+- Automatically fails if leaks detected
+- Run operations 1000+ times to catch leaks
 
 ---
 
-## Testing Patterns
+## Error Handling
+
+### Patterns
+
+**1. Propagate (Default)**:
+- `const result = try inner();` - Propagate on error
+
+**2. Handle Specific Errors**:
+- Use `switch` to handle specific errors differently
+- Propagate unhandled errors
+
+**3. Convert Errors**:
+- Catch and return domain-specific error
+- Log original error for debugging
+
+**4. Critical Section (Use Sparingly)**:
+- `const result = operation() catch unreachable;`
+- Only when you can PROVE it won't fail
+- Document why it's safe
+
+---
+
+## Testing
 
 ### Test Organization
+- **Unit Tests**: `src/test/unit/[module]/[file]_test.zig`
+- **Integration Tests**: `src/test/integration/`
+- **Benchmarks**: `src/test/benchmark/`
+- **Conformance**: `src/test/conformance_runner.zig` (if applicable)
 
-- **Unit Tests**: `src/test/unit/[module]/[file]_test.zig` - Mirror source structure
-- **Integration Tests**: `src/test/integration/` - End-to-end workflows
-- **Benchmarks**: `src/test/benchmark/` - Performance testing
-- **Conformance Tests**: `src/test/conformance_runner.zig` - Template for external test suites
-- **Inline tests**: Simple tests can go in source files
+### Test Requirements
+- Use `testing.allocator` - Catches memory leaks
+- Test error conditions, not just success paths
+- Run operations 1000+ times to catch intermittent issues
+- Test edge cases (empty input, max values, etc.)
 
-### Conformance Testing
-
-For projects that need to validate against external specifications or test suites:
-
-1. **Setup**: Place test files in `testdata/` directory
-2. **Customize**: Edit `src/test/conformance_runner.zig` for your test format
-3. **Build**: Uncomment conformance section in `build.zig`
-4. **Run**: Execute with `zig build conformance`
-
-See `src/test/conformance_runner.zig` for a template example.
-
-### Test Template
-
-```zig
-const std = @import("std");
-const testing = std.testing;
-const MyModule = @import("../../../[module]/[file].zig");
-
-test "MyModule: basic functionality" {
-    const allocator = testing.allocator;
-
-    // Setup
-    const input = // ...
-
-    // Execute
-    const result = try MyModule.doSomething(allocator, input);
-    defer result.deinit(allocator);
-
-    // Assert
-    try testing.expectEqual(expected, result.value);
-    try testing.expect(result.isValid());
-}
-
-test "MyModule: error conditions" {
-    const allocator = testing.allocator;
-
-    // Test error case
-    const result = MyModule.doSomething(allocator, invalid_input);
-    try testing.expectError(error.InvalidInput, result);
-}
-
-test "MyModule: no memory leaks" {
-    const allocator = testing.allocator;
-
-    // Run many times to detect leaks
-    var i: usize = 0;
-    while (i < 1000) : (i += 1) {
-        const thing = try MyModule.create(allocator);
-        defer thing.deinit(allocator);
-    }
-}
-```
-
-### Common Test Patterns
-
-#### Pattern 1: Setup/Teardown
-
-```zig
-test "operation with cleanup" {
-    const allocator = testing.allocator;
-
-    // Setup
-    const thing = try createThing(allocator);
-    defer thing.deinit(allocator); // Always cleanup
-
-    // Test
-    try testing.expect(thing.isValid());
-}
-```
-
-#### Pattern 2: Multiple Assertions
-
-```zig
-test "comprehensive validation" {
-    const result = doSomething();
-
-    try testing.expectEqual(@as(u32, 42), result.count);
-    try testing.expectEqualStrings("expected", result.name);
-    try testing.expect(result.flag);
-    try testing.expectApproxEqAbs(@as(f64, 3.14), result.value, 0.001);
-}
-```
-
-#### Pattern 3: Error Testing
-
-```zig
-test "handles invalid input" {
-    const result = parseData(&[_]u8{});
-    try testing.expectError(error.InvalidInput, result);
-}
-```
+### Common Patterns
+- Setup/Teardown: Use `defer` for cleanup
+- Multiple Assertions: Test all aspects of result
+- Error Testing: Use `testing.expectError(error.Type, result)`
 
 ---
 
-## Performance Considerations
+## Documentation Updates
 
-### General Guidelines
+### Checklist Before Commit
+- [ ] `zig fmt src/` - Format code
+- [ ] `zig build test` - All tests pass
+- [ ] No compiler warnings
+- [ ] Documentation updated (if API changed)
+- [ ] TODO.md updated (if task completed)
 
-1. **Profile first**: Don't guess bottlenecks
-2. **Algorithmic wins**: O(n²) → O(n log n) beats micro-optimizations
-3. **Memory layout**: Contiguous data is cache-friendly
-4. **Avoid allocations**: Reuse buffers, use stack when possible
+### Checklist After Milestone Completion
 
-### Performance Patterns
+**CRITICAL**: Update these files for every significant milestone:
 
-#### Pattern 1: Batch Processing
+1. **../README.md** - User-facing documentation
+   - Add new features to "Features" section
+   - Update performance stats and benchmarks
+   - Add code examples for new APIs
+   - Update badges (test count, pass rate, coverage)
 
-```zig
-// ✅ GOOD: Process in batches
-pub fn processBatch(items: []Item) !void {
-    const BATCH_SIZE = 1000;
-    var offset: usize = 0;
+2. **../docs/CHANGELOG.md** - Complete change history
+   - Add entry under `[Unreleased]` with date
+   - **Use point-form format** (concise bullets, not paragraphs)
+   - Structure: `### Added`, `### Changed`, `### Fixed`
+   - Include technical details but keep brief
+   - Document breaking changes
+   - Use present tense ("Add", "Change") for unreleased
 
-    while (offset < items.len) : (offset += BATCH_SIZE) {
-        const end = @min(offset + BATCH_SIZE, items.len);
-        const batch = items[offset..end];
-        try processSingleBatch(batch);
-    }
-}
-```
+3. **../docs/TODO.md** - Milestone tracking
+   - Mark completed tasks `[x]`
+   - Update milestone status (IN PROGRESS → COMPLETE)
+   - Add completion date
+   - Update "Current Status" summary
 
-#### Pattern 2: Reuse Buffers
+**Milestone Documentation Example**:
 
-```zig
-// ✅ GOOD: Reuse buffer across iterations
-pub fn processMany(allocator: Allocator, inputs: []Input) !void {
-    var buffer = try ArrayList(u8).initCapacity(allocator, 4096);
-    defer buffer.deinit();
+After implementing caching:
+- README.md: Add "💾 Intelligent Caching" to features, CLI examples
+- CHANGELOG.md: Point-form entry with implementation details
+- TODO.md: Mark Phase 1 complete, update status
 
-    for (inputs) |input| {
-        buffer.clearRetainingCapacity(); // Reuse allocation
-        try processIntoBuffer(input, &buffer);
-    }
-}
-```
+**When NOT to Update**:
+- Minor bug fixes (unless critical)
+- Internal refactoring (unless performance impact)
+- Test additions (unless revealing new capabilities)
+- Documentation typo fixes
 
-#### Pattern 3: Avoid Allocations in Hot Path
-
-```zig
-// ❌ BAD: Allocates on every call
-pub fn processHot(allocator: Allocator, data: []const u8) !Result {
-    const temp = try allocator.alloc(u8, 100); // Hot path allocation!
-    defer allocator.free(temp);
-    // ...
-}
-
-// ✅ GOOD: Caller-allocated buffer
-pub fn processHot(data: []const u8, buffer: []u8) !Result {
-    std.debug.assert(buffer.len >= 100);
-    // Use provided buffer - no allocation
-    // ...
-}
-```
-
----
-
-## WebAssembly Considerations
-
-*Only relevant if building for WebAssembly target*
-
-### Critical Rules for Wasm
-
-1. **No large stack allocations**: Wasm stack is limited (~1MB)
-   ```zig
-   // ❌ BAD: Stack overflow in browser
-   var big_buffer: [10 * 1024 * 1024]u8 = undefined;
-
-   // ✅ GOOD: Heap allocation
-   const big_buffer = try allocator.alloc(u8, 10 * 1024 * 1024);
-   defer allocator.free(big_buffer);
-   ```
-
-2. **Use u32 for pointers**: Wasm32 uses 32-bit addresses
-   ```zig
-   // ❌ BAD: usize changes between wasm32/wasm64
-   export fn getPointer() usize { /* ... */ }
-
-   // ✅ GOOD: Explicit u32 for wasm32
-   export fn getPointer() u32 { /* ... */ }
-   ```
-
-3. **Export allocation functions**: Let JS allocate safely
-   ```zig
-   export fn myAlloc(size: u32) u32 {
-       const mem = allocator.alloc(u8, size) catch return 0;
-       return @intCast(@intFromPtr(mem.ptr));
-   }
-
-   export fn myFree(ptr: u32, size: u32) void {
-       const mem = @as([*]u8, @ptrFromInt(ptr))[0..size];
-       allocator.free(mem);
-   }
-   ```
+**Remember**: Documentation updates are part of the milestone!
 
 ---
 
 ## Quick Reference
 
-### Checklist for Every Function
+### Tiger Style Checklist (Every Function)
+- [ ] ≤70 lines
+- [ ] 2+ assertions (pre/post/invariants)
+- [ ] All loops bounded (explicit MAX)
+- [ ] Post-loop assertions
+- [ ] Clear ownership documented
+- [ ] Explicit types (u32, not usize)
+- [ ] Error handling (try/catch, not silent)
+- [ ] Tests written
 
-- [ ] Function ≤70 lines (break up if longer)
-- [ ] 2+ assertions (pre-conditions, post-conditions, invariants)
-- [ ] All loops bounded (explicit upper limit)
-- [ ] Post-loop assertions (verify termination)
-- [ ] Clear ownership (document who frees memory)
-- [ ] Explicit types (u32, not usize, unless required)
-- [ ] Error handling (try/catch, not silent failure)
-- [ ] Tests written (in src/test/unit/)
+### Type Checklist
+- [ ] Use `u32` for counts/indices (not `usize`)
+- [ ] Use `u64` for byte sizes
+- [ ] Use `usize` only for memory addresses/stdlib APIs
+- [ ] Cast at API boundaries: `@intCast(u32_value)`
 
-### Checklist for Every Struct
+### Memory Checklist
+- [ ] Allocator passed explicitly
+- [ ] Ownership documented in comments
+- [ ] `defer` cleanup immediately after allocation
+- [ ] Use Arena for batch allocations
+- [ ] Test with `testing.allocator`
 
-- [ ] Clear ownership (fields owned by struct?)
-- [ ] init() function (if needs allocation)
-- [ ] deinit() function (if owns resources)
-- [ ] Documentation (what it is, how to use)
-- [ ] Tests (creation, usage, cleanup)
+### Test Checklist
+- [ ] Unit test for every public function
+- [ ] Error cases tested
+- [ ] Edge cases covered
+- [ ] Memory leaks checked (testing.allocator)
+- [ ] Run 1000+ iterations for intermittent issues
 
-### Checklist Before Commit
+---
 
-- [ ] `zig fmt src/` (format code)
-- [ ] `zig build test` (all tests pass)
-- [ ] No compiler warnings
-- [ ] Documentation updated (if API changed)
-- [ ] TODO.md updated (if task completed)
+## Critical Learnings
+
+### Image Processing Safety (2025-10-30)
+
+**Bound File I/O**:
+- Always use `MAX_HASH_SIZE` when reading files
+- Assert `total_read <= MAX` after loop
+
+**Validate Image Dimensions**:
+- Check `width > 0`, `height > 0`
+- Check `width <= MAX_DIMENSION`, `height <= MAX_DIMENSION`
+- Check `total_pixels <= MAX_PIXELS` (prevent decompression bombs)
+
+**libvips Memory Management**:
+- Use `defer` for C FFI cleanup
+- Always `defer if (buffer_ptr != null) g_free(buffer_ptr);`
+
+**Validate Codec Output**:
+- Check magic numbers after encoding
+- JPEG: `[0xFF, 0xD8]` (SOI marker)
+- PNG: `[0x89, 0x50, 0x4E, 0x47]` (PNG signature)
+
+**Binary Search Invariants**:
+- Loop invariants inside binary search
+- Assert `q_min <= q_max` at loop start
+- Assert `q_mid >= q_min and q_mid <= q_max`
+
+**Warn on Lossy Transformations**:
+- Warn when encoding RGBA to format without alpha support
+- Log when operations will lose data
+
+### FFI Boundary Safety (2025-10-31)
+
+**Validate ALL Inputs at FFI Boundaries**:
+- Check file sizes before reading (MAX: 100MB for images)
+- Validate array lengths are non-zero and reasonable
+- Check pointers are non-null before dereferencing
+- Validate enum values are in valid range
+- Validate UTF-8 before converting C strings
+
+**Python ctypes Safety**:
+```python
+# ✅ VALIDATE before FFI call
+MAX_INPUT_SIZE = 100 * 1024 * 1024
+if len(input_bytes) == 0:
+    raise ValueError("Input cannot be empty")
+if len(input_bytes) > MAX_INPUT_SIZE:
+    raise ValueError(f"Input too large: {len(input_bytes)}")
+if concurrency < 1 or concurrency > 16:
+    raise ValueError(f"concurrency must be 1-16, got {concurrency}")
+```
+
+**Node.js ref-napi Safety**:
+```typescript
+// ✅ VALIDATE C memory before reading
+if (result.output_len > 0) {
+    if (result.output_bytes.isNull()) {
+        throw new Error('Invalid: output_bytes null but length > 0');
+    }
+    const MAX_OUTPUT_SIZE = 100 * 1024 * 1024;
+    if (result.output_len > MAX_OUTPUT_SIZE) {
+        throw new Error(`Output too large: ${result.output_len}`);
+    }
+    const outputData = ref.reinterpret(result.output_bytes, result.output_len, 0);
+    data = Buffer.from(outputData);
+}
+```
+
+**Zig FFI Export Safety**:
+- Add assertions at entry: validate options, check nulls
+- Bounded loops for string parsing (format lists, etc.)
+- Use explicit MAX constants: `MAX_FORMATS = 10`
+- Assert after parsing: `formats_list.items.len > 0 and <= MAX`
+- Never trust input sizes - clamp to reasonable limits
+
+**Memory Ownership at FFI Boundary**:
+- Track allocation source: heap vs static string
+- Add `_allocated` flag to result structs if needed
+- Document who owns memory (caller vs callee)
+- Free consistently based on ownership flags
+
+### Zig 0.15 Changes (2025-10-30)
+
+**ArrayList Unmanaged API**:
+- ✅ `var list = ArrayList(T){}; list.deinit(allocator);`
+- ✅ `list.append(allocator, item);`
+- ❌ Old: `ArrayList(T).init(allocator)`
+
+**File I/O Changes**:
+- ✅ `file.writeAll(bytes);`
+- ❌ Old: `file.writer().writeAll(bytes)`
+
+**Manual JSON Serialization**:
+- Zig 0.15 std.json API changed
+- Use manual serialization for stability
+- Escape strings: `\\`, `\"`, `\n`
 
 ---
 
@@ -910,607 +353,5 @@ pub fn processHot(data: []const u8, buffer: []u8) !Result {
 
 ---
 
-## Critical Learnings from Code Review (2025-10-30)
-
-### Image Processing Safety
-
-**LESSON 1: Always Bound File I/O Loops**
-
-When hashing file contents, ALWAYS bound the loop to prevent hangs:
-
-```zig
-// ❌ BAD: Unbounded file read
-while (true) {
-    const bytes_read = try file.read(&buf);
-    if (bytes_read == 0) break;
-    hasher.update(buf[0..bytes_read]);
-}
-
-// ✅ GOOD: Bounded with max size
-const MAX_HASH_SIZE: u64 = 100 * 1024 * 1024; // 100MB
-var total_read: u64 = 0;
-
-while (total_read < MAX_HASH_SIZE) {
-    const bytes_read = try file.read(&buf);
-    if (bytes_read == 0) break;
-    hasher.update(buf[0..bytes_read]);
-    total_read += bytes_read;
-}
-
-std.debug.assert(total_read <= MAX_HASH_SIZE);
-```
-
-**LESSON 2: Validate Image Dimensions at Load Time**
-
-Protect against decompression bombs:
-
-```zig
-// ✅ Validate immediately after load
-const MAX_DIMENSION: u32 = 65535;
-const MAX_PIXELS: u64 = 178_000_000; // ~500 megapixels
-
-const w = wrapper.width();
-const h = wrapper.height();
-
-if (w == 0 or h == 0 or w > MAX_DIMENSION or h > MAX_DIMENSION) {
-    return VipsError.InvalidImage;
-}
-
-const total_pixels: u64 = @as(u64, w) * @as(u64, h);
-if (total_pixels > MAX_PIXELS) {
-    std.log.err("Image too large: {d}x{d} = {d} pixels", .{w, h, total_pixels});
-    return VipsError.InvalidImage;
-}
-```
-
-**LESSON 3: Always Use `defer` for C FFI Cleanup**
-
-libvips memory leaks on error paths are common:
-
-```zig
-// ❌ BAD: Leaks if allocator.alloc fails
-var buffer_ptr: [*c]u8 = null;
-const result = vips_save_buffer(..., &buffer_ptr, ...);
-
-if (result != 0) return error.Failed; // LEAK if buffer_ptr != null
-
-const owned = try allocator.alloc(u8, len); // LEAK if this fails
-g_free(buffer_ptr);
-
-// ✅ GOOD: defer ensures cleanup on all paths
-var buffer_ptr: [*c]u8 = null;
-const result = vips_save_buffer(..., &buffer_ptr, ...);
-
-defer if (buffer_ptr != null) g_free(buffer_ptr);
-
-if (result != 0) return error.Failed; // No leak
-
-const owned = try allocator.alloc(u8, len); // No leak if this fails
-```
-
-**LESSON 4: Validate Encoded Image Magic Numbers**
-
-Always verify codec output:
-
-```zig
-// ✅ Verify JPEG magic number
-pub fn saveAsJPEG(...) ![]u8 {
-    const encoded = try vips_img.saveAsJPEG(allocator, quality);
-
-    // Post-condition: Verify JPEG SOI marker
-    std.debug.assert(encoded.len >= 2);
-    std.debug.assert(encoded[0] == 0xFF and encoded[1] == 0xD8);
-
-    return encoded;
-}
-
-// ✅ Verify PNG signature
-pub fn saveAsPNG(...) ![]u8 {
-    const encoded = try vips_img.saveAsPNG(allocator, compression);
-
-    // Post-condition: Verify PNG signature
-    std.debug.assert(encoded.len >= 8);
-    std.debug.assert(encoded[0] == 0x89); // PNG signature
-    std.debug.assert(encoded[1] == 0x50 and encoded[2] == 0x4E and encoded[3] == 0x47);
-
-    return encoded;
-}
-```
-
-**LESSON 5: Add Loop Invariants to Binary Search**
-
-Binary search needs invariants inside the loop:
-
-```zig
-while (iteration < opts.max_iterations and q_min <= q_max) : (iteration += 1) {
-    // Loop invariants
-    std.debug.assert(q_min <= q_max);
-    std.debug.assert(q_min >= opts.quality_min);
-    std.debug.assert(q_max <= opts.quality_max);
-
-    const q_mid = q_min + (q_max - q_min) / 2;
-    std.debug.assert(q_mid >= q_min and q_mid <= q_max);
-
-    const encoded = try encodeImage(..., q_mid);
-
-    // Invariant: Encoded data is non-empty
-    std.debug.assert(encoded.len > 0);
-
-    // ... search logic ...
-}
-
-// Post-loop assertions
-std.debug.assert(iteration <= opts.max_iterations);
-std.debug.assert(best_quality >= opts.quality_min and best_quality <= opts.quality_max);
-```
-
-**LESSON 6: Warn When Discarding Alpha Channel**
-
-Image optimizers must warn users about lossy transformations:
-
-```zig
-pub fn encodeImage(buffer: *const ImageBuffer, format: ImageFormat, quality: u8) ![]u8 {
-    // Warn if encoding RGBA to format that doesn't support alpha
-    if (buffer.channels == 4 and !formatSupportsAlpha(format)) {
-        std.log.warn("Encoding RGBA image to {s} will drop alpha channel",
-                     .{format.toString()});
-    }
-
-    // ... rest of encoding ...
-}
-```
-
-**LESSON 7: Add Encoding Timeouts**
-
-Protect against malformed images that cause slow encoding:
-
-```zig
-pub const SearchOptions = struct {
-    max_iterations: u8 = 7,
-    max_encode_time_ms: u64 = 5000, // 5 second timeout
-    // ...
-};
-
-while (iteration < opts.max_iterations and q_min <= q_max) : (iteration += 1) {
-    const start_time = std.time.milliTimestamp();
-
-    const encoded = try codecs.encodeImage(...);
-
-    const encode_time = std.time.milliTimestamp() - start_time;
-    if (encode_time > opts.max_encode_time_ms) {
-        std.log.warn("Encoding took {d}ms (>{}ms timeout)",
-                     .{encode_time, opts.max_encode_time_ms});
-    }
-}
-```
-
-### Tiger Style Patterns
-
-**LESSON 8: Minimum 2 Assertions = Pre + Post**
-
-Every function needs at least:
-1. Pre-condition(s) - validate inputs
-2. Post-condition(s) - validate outputs
-
-```zig
-pub fn decodeImage(allocator: Allocator, path: []const u8) !ImageBuffer {
-    // Pre-conditions (2)
-    std.debug.assert(path.len > 0);
-    std.debug.assert(path.len < std.fs.max_path_bytes);
-
-    // ... operations ...
-
-    const buffer = try srgb.toImageBuffer(allocator);
-
-    // Post-conditions (2)
-    std.debug.assert(buffer.width > 0 and buffer.height > 0);
-    std.debug.assert(buffer.data.len == @as(usize, buffer.stride) * @as(usize, buffer.height));
-
-    return buffer;
-}
-```
-
-**LESSON 9: Add Invariants for Multi-Step Operations**
-
-For functions with multiple steps, add invariants between steps:
-
-```zig
-pub fn decodeImage(allocator: Allocator, path: []const u8) !ImageBuffer {
-    std.debug.assert(path.len > 0);
-
-    var img = try vips.loadImage(path);
-    defer img.deinit();
-
-    // Invariant: Loaded image has valid dimensions
-    std.debug.assert(img.width() > 0 and img.width() <= 65535);
-    std.debug.assert(img.height() > 0 and img.height() <= 65535);
-
-    var rotated = try vips.autorot(&img);
-    defer rotated.deinit();
-
-    // Invariant: Rotation preserves validity
-    std.debug.assert(rotated.width() > 0 and rotated.height() > 0);
-
-    var srgb = try vips.toSRGB(&rotated);
-    defer srgb.deinit();
-
-    // Invariant: Color space conversion succeeded
-    std.debug.assert(srgb.interpretation() == .srgb);
-
-    const buffer = try srgb.toImageBuffer(allocator);
-
-    // Post-conditions
-    std.debug.assert(buffer.width > 0 and buffer.height > 0);
-    std.debug.assert(buffer.data.len > 0);
-
-    return buffer;
-}
-```
-
-**LESSON 10: Use Comptime Assertions for Struct Sizes**
-
-Prevent struct bloat with comptime checks:
-
-```zig
-pub const ImageBuffer = struct {
-    data: []u8,
-    width: u32,
-    height: u32,
-    stride: u32,
-    channels: u8,
-    allocator: Allocator,
-    color_space: u8,
-
-    comptime {
-        // Tiger Style: Ensure struct size is reasonable
-        std.debug.assert(@sizeOf(ImageBuffer) <= 64);
-    }
-};
-```
-
-### Common Pitfalls
-
-**PITFALL 1: Silent Alpha Channel Loss**
-
-When encoding RGBA to JPEG, alpha is silently dropped. Always warn:
-
-```zig
-if (buffer.channels == 4 and format == .jpeg) {
-    std.log.warn("Encoding RGBA to JPEG will discard alpha channel", .{});
-}
-```
-
-**PITFALL 2: Forgetting to Free C-Allocated Memory**
-
-libvips uses `g_free()`, not Zig allocator:
-
-```zig
-var buffer_ptr: [*c]u8 = null;
-// ...
-defer if (buffer_ptr != null) g_free(buffer_ptr); // ✅ Must use g_free
-```
-
-**PITFALL 3: Not Checking Empty Encoded Buffers**
-
-Codec failures might return zero-byte buffers:
-
-```zig
-const encoded = try encodeImage(...);
-std.debug.assert(encoded.len > 0); // ✅ Always check
-```
-
-**PITFALL 4: Missing Post-Loop Assertions**
-
-Always verify loop termination:
-
-```zig
-while (iteration < MAX_ITERATIONS) : (iteration += 1) {
-    // ... loop body ...
-}
-std.debug.assert(iteration <= MAX_ITERATIONS); // ✅ Verify bounded
-```
-
----
-
----
-
-## Critical Code Review Findings (2025-10-30)
-
-### Zig 0.15.1 ArrayList Unmanaged API
-
-**CRITICAL**: All ArrayList usage must use new unmanaged API:
-
-```zig
-// ✅ CORRECT: Unmanaged ArrayList
-var list = ArrayList(T){};
-defer list.deinit(allocator);
-try list.append(allocator, item);
-const owned = try list.toOwnedSlice(allocator);
-
-// ❌ WRONG: Old managed API (Zig 0.14 and earlier)
-var list = ArrayList(T).init(allocator);
-defer list.deinit();
-try list.append(item);
-const owned = try list.toOwnedSlice();
-```
-
-**Files Migrated (2025-10-30)**:
-- `src/discovery.zig` ✅
-- `src/optimizer.zig` ✅
-- `src/conformance_runner.zig` ✅
-
-**Pattern for errdefer with ArrayList**:
-```zig
-var list = ArrayList(T){};
-errdefer {
-    for (list.items) |item| cleanup(item);
-    list.deinit(allocator);
-}
-// ... populate list ...
-return try list.toOwnedSlice(allocator);
-```
-
-### Original File as Baseline Candidate
-
-**CRITICAL LEARNING**: Image optimizers must NEVER make files larger. Always include original as a candidate.
-
-```zig
-// ✅ CORRECT: Original file is a candidate
-const original_bytes = try fs.cwd().readFileAlloc(allocator, input_path, MAX_SIZE);
-errdefer allocator.free(original_bytes);
-
-const original_candidate = EncodedCandidate{
-    .format = original_format,
-    .encoded_bytes = original_bytes,
-    .file_size = @intCast(original_bytes.len),
-    .quality = 100, // Original quality
-    .diff_score = 0.0, // Perfect match to original
-    .passed_constraints = if (max_bytes) |max| original_bytes.len <= max else true,
-    .encoding_time_ns = 0, // No encoding needed
-};
-try candidates.append(allocator, original_candidate);
-
-// ❌ WRONG: Only re-encoded candidates (can make files larger!)
-for (formats) |fmt| {
-    const encoded = try encodeImage(buffer, fmt, quality);
-    try candidates.append(allocator, encoded);
-}
-// Missing: Original file may be smaller than any re-encoded version
-```
-
-**Why This Matters**:
-- Tiny already-optimal files (favicons, icons) often get LARGER when re-encoded
-- Re-encoding adds codec overhead (headers, metadata)
-- Example: 420-byte PNG → 482 bytes JPEG (14.8% larger!)
-- Solution: Original file competes as baseline candidate
-
-**Impact on Conformance Tests**:
-- Before fix: 125 failures due to "output larger than input"
-- After fix: 0 size regression failures
-- Pass rate: 21% → 81% (single fix!)
-
-### Conformance Test Design Patterns
-
-**Pattern 1: Skip Known-Invalid Test Files**
-
-```zig
-// ✅ Skip files that are intentionally malformed (PNGSuite)
-const is_invalid_test = std.mem.startsWith(u8, entry.name, "x") or  // xc*, xd*, xs*
-                       std.mem.endsWith(u8, entry.name, ".DS_Store");
-
-if (is_invalid_test) {
-    std.log.debug("Skipping invalid test file: {s}", .{entry.name});
-    continue;
-}
-```
-
-**Pattern 2: Allow Tolerance for Size Checks**
-
-```zig
-// ✅ Allow 5% tolerance (re-encoding may add slight overhead)
-const TOLERANCE: f64 = 1.05;
-const max_acceptable = @as(u64, @intFromFloat(@as(f64, @floatFromInt(input_bytes)) * TOLERANCE));
-
-if (output_bytes > max_acceptable) {
-    return error.OutputLargerThanInput;
-}
-
-// ❌ Strict check fails on codec header differences
-if (output_bytes > input_bytes) {
-    return error.OutputLargerThanInput;
-}
-```
-
-**Pattern 3: Validate Images Before Attempting Optimization**
-
-```zig
-// ✅ Try to get metadata first (validates file is loadable)
-const metadata = image_ops.getImageMetadata(path) catch |err| {
-    std.log.warn("Skipping unloadable file {s}: {}", .{path, err});
-    continue;
-};
-
-// Only then attempt optimization
-const result = try optimizer.optimizeImage(allocator, job);
-```
-
-### Assertion Count Patterns for Optimizer
-
-**Pattern 1: Function with Multiple Steps**
-
-```zig
-pub fn optimizeImage(allocator: Allocator, job: OptimizationJob) !OptimizationResult {
-    // Pre-conditions (4 assertions)
-    std.debug.assert(job.formats.len > 0);
-    std.debug.assert(job.concurrency > 0);
-    std.debug.assert(job.input_path.len > 0);
-    std.debug.assert(job.output_path.len > 0);
-
-    // Step 1: Decode
-    var buffer = try image_ops.decodeImage(allocator, job.input_path);
-    errdefer buffer.deinit();
-
-    // Invariant: Buffer is valid
-    std.debug.assert(buffer.width > 0 and buffer.height > 0);
-    std.debug.assert(buffer.data.len > 0);
-
-    // Step 2: Generate candidates
-    var candidates = try generateCandidates(allocator, &buffer, ...);
-
-    // Invariant: At least original candidate exists
-    std.debug.assert(candidates.items.len > 0);
-
-    // Post-condition: Result is valid
-    std.debug.assert(result.all_candidates.len > 0);
-
-    return result;
-}
-```
-
-**Pattern 2: Selection Function**
-
-```zig
-fn selectBestCandidate(
-    allocator: Allocator,
-    candidates: []const EncodedCandidate,
-    max_bytes: ?u32,
-    max_diff: ?f64,
-) !?EncodedCandidate {
-    // Pre-condition
-    std.debug.assert(candidates.len > 0);
-
-    var best: ?*const EncodedCandidate = null;
-
-    // Tiger Style: Bounded loop
-    for (candidates) |*candidate| {
-        // Loop invariant: candidate is valid
-        std.debug.assert(candidate.file_size > 0);
-        std.debug.assert(candidate.encoded_bytes.len > 0);
-
-        // Selection logic...
-    }
-
-    // Post-condition: If found, it's valid
-    if (best) |b| {
-        std.debug.assert(b.file_size > 0);
-        std.debug.assert(b.encoded_bytes.len == b.file_size);
-    }
-
-    return best;
-}
-```
-
-### Build.zig Environment Variable Helpers
-
-**Pattern**: Extract repeated environment variable setup
-
-```zig
-// ✅ GOOD: Helper function
-fn configureVipsEnv(run_step: *std.Build.Step.Run) void {
-    run_step.setEnvironmentVariable("VIPS_DISC_THRESHOLD", "0");
-    run_step.setEnvironmentVariable("VIPS_NOVECTOR", "1");
-}
-
-// Usage:
-configureVipsEnv(run_unit_tests);
-configureVipsEnv(run_integration_tests);
-configureVipsEnv(run_conformance);
-
-// ❌ BAD: Repeated code
-run_unit_tests.setEnvironmentVariable("VIPS_DISC_THRESHOLD", "0");
-run_unit_tests.setEnvironmentVariable("VIPS_NOVECTOR", "1");
-run_integration_tests.setEnvironmentVariable("VIPS_DISC_THRESHOLD", "0");
-run_integration_tests.setEnvironmentVariable("VIPS_NOVECTOR", "1");
-// ... repeated 3+ times
-```
-
-### Integration Test Patterns
-
-**Pattern**: Use executable pattern, not test runner
-
-```zig
-// ✅ CORRECT: Conformance runner as executable
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    // Full access to all project modules
-    const vips_ctx = try vips.VipsContext.init();
-    defer vips_ctx.deinit();
-
-    // Run conformance tests...
-}
-
-// build.zig:
-const conformance_exe = b.addExecutable(.{
-    .name = "conformance",
-    .root_source_file = b.path("src/conformance_root.zig"),
-});
-
-// ❌ PROBLEMATIC: Integration tests in test runner
-test "integration: full pipeline" {
-    const vips = root.vips; // Error: root has no member 'vips'
-}
-```
-
-**Rationale**: Test runner has limited module access. Executables have full control and can import all modules.
-
-### Error Message Quality
-
-**Pattern**: Provide context and actionable hints
-
-```zig
-// ✅ GOOD: Actionable error message
-const metadata = image_ops.getImageMetadata(path) catch |err| {
-    std.log.err(
-        \\Failed to load image: {s}
-        \\Cause: {}
-        \\Hint: Verify file is a valid image format (PNG/JPEG/WebP/AVIF)
-        \\Path: {s}
-    , .{filename, err, path});
-    continue;
-};
-
-// ❌ BAD: Generic error
-const metadata = image_ops.getImageMetadata(path) catch |err| {
-    std.log.err("Load failed: {}", .{err});
-    continue;
-};
-```
-
-### Manual JSON Serialization (Zig 0.15 Compatibility)
-
-**Pattern**: Manual JSONL serialization for MVP
-
-```zig
-// ✅ CORRECT: Manual JSON for Zig 0.15 compatibility
-pub fn writeManifestLine(writer: anytype, entry: ManifestEntry) !void {
-    try writer.writeAll("{\"input\":\"");
-    try writeJsonString(writer, entry.input);
-    try writer.writeAll("\",\"output\":\"");
-    try writeJsonString(writer, entry.output);
-    try writer.print("\",\"bytes\":{d}", .{entry.bytes});
-    // ... more fields ...
-    try writer.writeByte('\n'); // JSONL: newline per entry
-}
-
-fn writeJsonString(writer: anytype, s: []const u8) !void {
-    for (s) |c| {
-        switch (c) {
-            '\\' => try writer.writeAll("\\\\"),
-            '"' => try writer.writeAll("\\\""),
-            '\n' => try writer.writeAll("\\n"),
-            else => try writer.writeByte(c),
-        }
-    }
-}
-```
-
-**Rationale**: Zig 0.15 std.json API is different from 0.14. Manual serialization avoids API churn.
-
----
-
-**Last Updated**: 2025-10-30
-
-This is a living document - update as you discover better patterns!
+**Last Updated**: 2025-10-31
+**Version**: 2.0 (Compact Edition)

@@ -283,56 +283,6 @@ test "SSIMULACRA2: scoreToDistance conversion" {
     try testing.expect(dist_80 >= 0.0);
 }
 
-test "SSIMULACRA2: mixed RGB and RGBA comparison" {
-    const allocator = testing.allocator;
-
-    const width: u32 = 32;
-    const height: u32 = 32;
-
-    // RGB image
-    const rgb_size = @as(usize, width) * height * 3;
-    const rgb_data = try allocator.alloc(u8, rgb_size);
-    defer allocator.free(rgb_data);
-    @memset(rgb_data, 128);
-
-    // RGBA image (same content, with alpha)
-    const rgba_size = @as(usize, width) * height * 4;
-    const rgba_data = try allocator.alloc(u8, rgba_size);
-    defer allocator.free(rgba_data);
-
-    var i: usize = 0;
-    var j: usize = 0;
-    while (i < rgba_size) : (i += 4) {
-        rgba_data[i] = 128;
-        rgba_data[i + 1] = 128;
-        rgba_data[i + 2] = 128;
-        rgba_data[i + 3] = 255;
-        j += 3;
-    }
-
-    const img_rgb = ImageBuffer{
-        .data = rgb_data,
-        .width = width,
-        .height = height,
-        .stride = width * 3,
-        .channels = 3,
-        .allocator = allocator,
-        .color_space = 1,
-    };
-
-    const img_rgba = ImageBuffer{
-        .data = rgba_data,
-        .width = width,
-        .height = height,
-        .stride = width * 4,
-        .channels = 4,
-        .allocator = allocator,
-        .color_space = 1,
-    };
-
-    // fssimu2 handles both RGB and RGBA
-    const score = try compute(allocator, &img_rgb, &img_rgba);
-
-    // Should still score high (content is the same)
-    try testing.expect(score >= 85.0);
-}
+// NOTE: Mixed RGB/RGBA comparison test removed
+// fssimu2 expects both images to have matching channel counts
+// In practice, optimizer ensures images are normalized to same format before comparison

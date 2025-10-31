@@ -67,7 +67,8 @@ pub fn generateGolden(
             .max_diff = 1.0,
             .metric_type = .dssim,
             .transform_params = types.TransformParams.init(),
-            .parallel_encoding = false,
+            .parallel_encoding = false
+            .cache_ptr = null, // No caching in golden snapshot tests,
         };
 
         // Run optimizer
@@ -175,7 +176,8 @@ pub fn compareAgainstGolden(
             .max_diff = 1.0,
             .metric_type = .dssim,
             .transform_params = types.TransformParams.init(),
-            .parallel_encoding = false,
+            .parallel_encoding = false
+            .cache_ptr = null, // No caching in golden snapshot tests,
         };
 
         // Run optimizer

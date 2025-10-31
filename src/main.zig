@@ -4,6 +4,9 @@ const optimizer = @import("optimizer.zig");
 const types = @import("types.zig");
 const output = @import("output.zig");
 const manifest = @import("manifest.zig");
+const cache_mod = @import("cache.zig");
+const Cache = cache_mod.Cache;
+const CacheConfig = cache_mod.CacheConfig;
 
 /// Exit codes for Pyjamaz
 ///
@@ -76,11 +79,57 @@ pub fn main() !void {
             if (i > 0) std.debug.print(", ", .{});
             std.debug.print("{s}", .{format});
         }
-        std.debug.print("\n\n", .{});
+        std.debug.print("\nCaching: {s}\n", .{if (config.cache_enabled) "enabled" else "disabled"});
+        if (config.cache_enabled) {
+            if (config.cache_dir) |dir| {
+                std.debug.print("Cache dir: {s}\n", .{dir});
+            } else {
+                std.debug.print("Cache dir: <default>\n", .{});
+            }
+        }
+        std.debug.print("\n", .{});
+    }
+
+    // Initialize cache if enabled
+    var cache_instance: ?Cache = null;
+    defer if (cache_instance) |*c| c.deinit();
+
+    if (config.cache_enabled) {
+        // Determine cache directory
+        const cache_dir = if (config.cache_dir) |dir|
+            try allocator.dupe(u8, dir)
+        else
+            CacheConfig.getDefaultCacheDir(allocator) catch |err| blk: {
+                std.log.warn("Failed to get default cache directory: {}, caching disabled", .{err});
+                break :blk null;
+            };
+
+        if (cache_dir) |dir| {
+            defer allocator.free(dir);
+
+            // Create cache config
+            var cache_config = CacheConfig.init(dir);
+            if (config.cache_max_size > 0) {
+                cache_config.max_size_bytes = config.cache_max_size;
+            }
+
+            // Initialize cache
+            cache_instance = Cache.init(allocator, cache_config) catch |err| blk: {
+                std.log.warn("Failed to initialize cache: {}, continuing without cache", .{err});
+                break :blk null;
+            };
+
+            if (cache_instance != null and config.verbosity >= 2) {
+                std.debug.print("Cache initialized: {s} (max size: {d} bytes)\n\n", .{
+                    dir,
+                    cache_config.max_size_bytes,
+                });
+            }
+        }
     }
 
     // Process all input files
-    const result = try processImages(allocator, &config);
+    const result = try processImages(allocator, &config, if (cache_instance) |*c| c else null);
 
     // Print summary
     if (config.verbosity >= 1) {
@@ -106,6 +155,7 @@ pub fn main() !void {
 fn processImages(
     allocator: std.mem.Allocator,
     config: *const cli.CliConfig,
+    cache_ptr: ?*Cache,
 ) !ProcessingResult {
     // Pre-conditions
     std.debug.assert(config.inputs.items.len > 0);
@@ -150,6 +200,7 @@ fn processImages(
             input_path,
             config,
             formats.items,
+            cache_ptr,
         ) catch |err| {
             total_failed += 1;
             const exit_code = classifyError(err);
@@ -240,6 +291,7 @@ fn processSingleImage(
     input_path: []const u8,
     config: *const cli.CliConfig,
     formats: []const types.ImageFormat,
+    cache_ptr: ?*Cache,
 ) !optimizer.OptimizationResult {
     // Pre-conditions
     std.debug.assert(input_path.len > 0);
@@ -261,6 +313,7 @@ fn processSingleImage(
     job.metric_type = config.metric_type;
     job.formats = formats;
     job.concurrency = @intCast(if (config.concurrency > 0) config.concurrency else 4);
+    job.cache_ptr = cache_ptr; // Enable caching if available
 
     // Run optimization
     const result = try optimizer.optimizeImage(allocator, job);

@@ -159,6 +159,37 @@ rm -rf zig-out/ zig-cache/
 4. Update documentation if API changed
 5. Update [docs/TODO.md](./docs/TODO.md) to check off completed tasks
 
+### After Completing a Milestone
+
+**IMPORTANT**: Always update these files when completing a milestone:
+
+1. **[README.md](./README.md)** - Update feature list, examples, and stats
+   - Add new features to "Features" section
+   - Update performance benchmarks if applicable
+   - Add usage examples for new capabilities
+   - Update badges and stats (test count, pass rate, etc.)
+
+2. **[docs/CHANGELOG.md](./docs/CHANGELOG.md)** - Document all changes
+   - Add entry under `[Unreleased]` section
+   - **Use point-form format** (bullets and sub-bullets, not paragraphs)
+   - Include: Added, Changed, Fixed, Removed sections as needed
+   - Be concise (1-2 lines per bullet max)
+   - Provide technical details (file names, line counts, key functions)
+   - Note technical decisions and future work
+   - Use present tense for unreleased changes
+
+3. **[docs/TODO.md](./docs/TODO.md)** - Mark milestone complete
+   - Check off completed tasks
+   - Update status from "IN PROGRESS" to "COMPLETE"
+   - Add completion date
+   - Document any deviations from plan
+
+**Checklist**:
+- [ ] README.md updated with new features
+- [ ] CHANGELOG.md has detailed entry
+- [ ] TODO.md milestone marked complete
+- [ ] All related documentation files updated
+
 ---
 
 ## Testing Requirements

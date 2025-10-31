@@ -57,6 +57,7 @@ pub fn benchmarkParallelEncoding(
             .formats = config.formats,
             .transform_params = types.TransformParams.init(),
             .concurrency = 1, // Force sequential
+            .cache_ptr = null, // No caching in benchmark
             .parallel_encoding = false, // Disable parallel
         };
 
@@ -78,6 +79,7 @@ pub fn benchmarkParallelEncoding(
             .transform_params = types.TransformParams.init(),
             .concurrency = 4, // 4 threads
             .parallel_encoding = true, // Enable parallel
+            .cache_ptr = null, // No caching in benchmark
         };
 
         var result = try optimizer.optimizeImage(allocator, job);

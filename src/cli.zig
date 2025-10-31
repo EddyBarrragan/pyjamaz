@@ -65,6 +65,15 @@ pub const CliConfig = struct {
     /// Strict mode: exit 1 on any warning
     strict_mode: bool,
 
+    /// Cache directory (null = use default ~/.cache/pyjamaz)
+    cache_dir: ?[]const u8,
+
+    /// Enable caching (default: true)
+    cache_enabled: bool,
+
+    /// Maximum cache size in bytes (0 = use default 1GB)
+    cache_max_size: u64,
+
     allocator: Allocator,
 
     pub fn init(allocator: Allocator) CliConfig {
@@ -89,6 +98,9 @@ pub const CliConfig = struct {
             .update_golden = false,
             .golden_manifest = null,
             .strict_mode = false, // Default: permissive mode
+            .cache_dir = null, // Use default
+            .cache_enabled = true, // Enable by default
+            .cache_max_size = 0, // Use default (1GB)
             .allocator = allocator,
         };
     }
@@ -204,6 +216,14 @@ pub fn parseArgs(allocator: Allocator) !CliConfig {
             config.golden_manifest = value;
         } else if (std.mem.eql(u8, arg, "--strict")) {
             config.strict_mode = true;
+        } else if (std.mem.eql(u8, arg, "--cache-dir")) {
+            const value = args.next() orelse return error.MissingValue;
+            config.cache_dir = value;
+        } else if (std.mem.eql(u8, arg, "--no-cache")) {
+            config.cache_enabled = false;
+        } else if (std.mem.eql(u8, arg, "--cache-max-size")) {
+            const value = args.next() orelse return error.MissingValue;
+            config.cache_max_size = try std.fmt.parseUnsigned(u64, value, 10);
         } else if (std.mem.startsWith(u8, arg, "--")) {
             std.debug.print("Unknown option: {s}\n", .{arg});
             return error.UnknownOption;
@@ -242,7 +262,6 @@ fn parseFormats(config: *CliConfig, formats_str: []const u8) !void {
 
 /// Parse metric type from string
 fn parseMetricType(s: []const u8) ?MetricType {
-    if (std.mem.eql(u8, s, "butteraugli")) return .butteraugli;
     if (std.mem.eql(u8, s, "dssim")) return .dssim;
     if (std.mem.eql(u8, s, "ssimulacra2")) return .ssimulacra2;
     if (std.mem.eql(u8, s, "none")) return .none;
@@ -296,7 +315,7 @@ fn printHelp() void {
         \\    --max-kb <KB>           Maximum file size in kilobytes
         \\    --max-bytes <BYTES>     Maximum file size in bytes
         \\    --max-diff <FLOAT>      Maximum perceptual difference (default: 1.0, must be > 0)
-        \\    --metric <TYPE>         Perceptual metric: dssim, ssimulacra2, butteraugli, none (default: dssim)
+        \\    --metric <TYPE>         Perceptual metric: dssim, ssimulacra2, none (default: dssim)
         \\    --formats <LIST>        Comma-separated formats to try (default: webp,jpeg,png)
         \\    --resize <GEOMETRY>     Resize geometry (e.g., 1920x1080, 1024, x480)
         \\    --sharpen <MODE>        Sharpening: none, auto, or 0.0-2.0 (default: none)
@@ -312,6 +331,11 @@ fn printHelp() void {
         \\    --json                  Output results as JSON
         \\    --strict                Exit with error (code 1) on any warning
         \\
+        \\CACHING:
+        \\    --cache-dir <DIR>       Cache directory (default: ~/.cache/pyjamaz or $XDG_CACHE_HOME/pyjamaz)
+        \\    --no-cache              Disable caching (slower but ensures fresh results)
+        \\    --cache-max-size <N>    Maximum cache size in bytes (default: 1GB)
+        \\
         \\REGRESSION TESTING:
         \\    --update-golden         Update golden snapshot baseline (creates/updates manifest)
         \\    --golden-manifest <FILE> Golden manifest path (default: testdata/golden/v0.4.0/manifest.tsv)
@@ -322,11 +346,12 @@ fn printHelp() void {
         \\    pyjamaz --out ./optimized --resize 1920x1080 --sharpen auto images/
         \\    pyjamaz --metric ssimulacra2 --max-diff 0.002 --seed 42 *.png
         \\    pyjamaz --flatten #000000 --formats jpeg image-with-alpha.png
+        \\    pyjamaz --no-cache --max-kb 50 *.jpg  # Disable cache for fresh results
+        \\    pyjamaz --cache-dir /tmp/my-cache --cache-max-size 5368709120 *.png  # Custom cache (5GB)
         \\
         \\PERCEPTUAL METRICS:
         \\    dssim        DSSIM metric (default), threshold: 0.01 = small difference
         \\    ssimulacra2  SSIMULACRA2 metric (recommended), threshold: 0.002 = acceptable quality
-        \\    butteraugli  Butteraugli metric (not implemented, will error)
         \\    none         Disable perceptual checking (size-only optimization)
         \\
         \\EXIT CODES:
@@ -394,11 +419,11 @@ test "ExifMode.fromString parses correctly" {
 test "parseMetricType parses all metric types" {
     const testing = std.testing;
 
-    try testing.expectEqual(MetricType.butteraugli, parseMetricType("butteraugli").?);
     try testing.expectEqual(MetricType.dssim, parseMetricType("dssim").?);
     try testing.expectEqual(MetricType.ssimulacra2, parseMetricType("ssimulacra2").?);
     try testing.expectEqual(MetricType.none, parseMetricType("none").?);
     try testing.expect(parseMetricType("invalid") == null);
+    try testing.expect(parseMetricType("butteraugli") == null); // Removed in v0.5.0
     try testing.expect(parseMetricType("") == null);
 }
 

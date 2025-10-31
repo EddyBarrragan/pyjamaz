@@ -28,7 +28,7 @@ const TestResult = struct {
     passed: bool,
     skipped: bool = false,
     input_bytes: u64,
-    output_bytes: ?u32,
+    output_bytes: ?u64, // Changed to u64 to match EncodedCandidate.file_size
     ratio: ?f64,
     diff_value: ?f64 = null, // Perceptual quality diff (0.0 = identical, higher = more different)
     reason: ?[]const u8,

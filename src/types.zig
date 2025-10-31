@@ -25,9 +25,9 @@ pub const getRecommendedThreshold = @import("metrics.zig").getRecommendedThresho
 // Tiger Style: Comptime validation of re-exported APIs
 comptime {
     // Verify MetricType has expected variants
-    const mt: MetricType = .butteraugli;
+    const mt: MetricType = .dssim;
     _ = mt;
-    const mt2: MetricType = .dssim;
+    const mt2: MetricType = .ssimulacra2;
     _ = mt2;
     const mt3: MetricType = .none;
     _ = mt3;
