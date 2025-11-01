@@ -423,7 +423,6 @@ test {
     _ = @import("manifest.zig");
 
     // Standalone test files
-    _ = @import("test/unit/vips_test.zig");
     _ = @import("test/unit/image_ops_test.zig");
     _ = @import("test/unit/codecs_encoding_test.zig");
 

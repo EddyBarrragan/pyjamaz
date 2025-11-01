@@ -2,12 +2,17 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ImageBuffer = @import("types/image_buffer.zig").ImageBuffer;
 const ImageFormat = @import("types/image_metadata.zig").ImageFormat;
-const vips = @import("vips.zig");
+const jpeg_codec = @import("codecs/jpeg.zig");
+const png_codec = @import("codecs/png.zig");
+const webp_codec = @import("codecs/webp.zig");
+const avif_codec = @import("codecs/avif.zig");
 
 /// Unified codec interface for Pyjamaz
 ///
 /// This module provides a consistent API for encoding images to different formats
-/// (JPEG, PNG, WebP, AVIF) using libvips as the backend.
+/// (JPEG, PNG, WebP, AVIF) using native codec libraries.
+///
+/// Note: This module is deprecated - use codecs/api.zig for new code.
 ///
 /// Tiger Style: Bounded quality parameters, explicit error handling, memory safety.
 
@@ -37,9 +42,9 @@ pub fn encodeImage(
     std.debug.assert(buffer.channels == 3 or buffer.channels == 4);
 
     // Validate quality based on format
+    // Note: PNG quality (compression) is 0-9, but we accept 0-100 and clamp it
     switch (format) {
-        .jpeg, .webp, .avif => std.debug.assert(quality <= 100),
-        .png => std.debug.assert(quality <= 9),
+        .jpeg, .webp, .avif, .png => std.debug.assert(quality <= 100),
         .unknown => return CodecError.UnsupportedFormat,
     }
 
@@ -48,16 +53,12 @@ pub fn encodeImage(
         std.log.warn("Encoding RGBA image to {s} will discard alpha channel", .{@tagName(format)});
     }
 
-    // Create vips image from buffer
-    var vips_img = try vips.VipsImageWrapper.fromImageBuffer(buffer);
-    defer vips_img.deinit();
-
-    // Encode to target format
+    // Encode using native codecs (Phase 3 complete: all formats use native codecs)
     const encoded = try switch (format) {
-        .jpeg => vips_img.saveAsJPEG(allocator, quality),
-        .png => vips_img.saveAsPNG(allocator, @min(quality, 9)),
-        .webp => vips_img.saveAsWebP(allocator, quality),
-        .avif => vips_img.saveAsAVIF(allocator, quality),
+        .jpeg => jpeg_codec.encodeJPEG(allocator, buffer, quality, false),
+        .png => png_codec.encodePNG(allocator, buffer, @min(quality, 9)),
+        .webp => webp_codec.encodeWebP(allocator, buffer, quality),
+        .avif => avif_codec.encodeAVIF(allocator, buffer, quality),
         .unknown => CodecError.UnsupportedFormat,
     };
 

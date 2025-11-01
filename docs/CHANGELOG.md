@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Milestone 3: Native Codec Integration (2025-11-01)
+
+**Native Codecs (2,157 lines total):**
+- JPEG (`src/codecs/jpeg.zig`, 642 lines): libjpeg-turbo 3.x, quality 0-100, RGBA→RGB conversion, magic validation
+- PNG (`src/codecs/png.zig`, 473 lines): libpng 1.6, compression 0-9, C callback error tracking, lossless
+- WebP (`src/codecs/webp.zig`, 457 lines): libwebp 1.6, lossless at quality=100, always returns RGBA
+- AVIF (`src/codecs/avif.zig`, 585 lines): libavif 1.3, speed presets -1 to 10, YUV420, always returns RGBA
+- Unified API (`src/codecs/api.zig`, 440 lines): Format detection, magic number defense-in-depth, capability queries
+
+**Performance & Safety:**
+- Heap allocation for RGBA conversion (was 196KB stack, now dynamic)
+- C callback error propagation (PNG OOM tracking, no silent corruption)
+- Tiger Style: 4-8 assertions/function, bounded loops, RAII cleanup, zero leaks
+- Tests: 126/127 passing (99.2%), 16 codec tests, zero memory leaks
+
+**Documentation:**
+- Added `TO-FIX.md`: Comprehensive Tiger Style review report
+- Added `FIXES-APPLIED.md`: Detailed fix documentation
+- Updated `src/CLAUDE.md`: Native codec FFI patterns, stack vs heap rules, C callback error handling
+
 ### Added - Comprehensive Memory Testing Suite (2025-10-31)
 
 - 12 test files: 3 Zig + 4 Node.js + 4 Python (~3,200 lines)
@@ -37,47 +57,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added - Intelligent Caching System (2025-10-31)
 
-**Core Implementation**:
-
-- Content-addressed caching with Blake3 hashing
-- Cache key: `Blake3(input_bytes + max_bytes + max_diff + metric_type + format)`
-- LRU eviction policy with configurable max size (default 1GB)
+- Blake3 content-addressed caching, LRU eviction (default 1GB), 15-20x speedup (5ms vs 100ms)
+- CLI flags: `--cache-dir`, `--no-cache`, `--cache-max-size`
+- Optimizer: `cache_ptr` field, lookup/storage in `optimizeImage()`, graceful degradation
+- 18 tests passing (config, key computation, put/get, metadata parsing, zero leaks)
 - Cache location: `~/.cache/pyjamaz/` or `$XDG_CACHE_HOME/pyjamaz/`
-- 15-20x speedup on cache hits (~5ms vs 100ms full optimization)
-
-**CLI Integration**:
-
-- New flags: `--cache-dir`, `--no-cache`, `--cache-max-size`
-- Added fields to `CliConfig`: `cache_dir`, `cache_enabled`, `cache_max_size`
-- Cache enabled by default (can disable with `--no-cache`)
-
-**Optimizer Integration**:
-
-- Added `cache_ptr: ?*Cache` field to `OptimizationJob`
-- Cache lookup at start of `optimizeImage()` and `optimizeImageFromBuffer()`
-- Cache storage after successful optimization
-- Optional caching (null pointer = disabled)
-- Graceful degradation (cache failures don't break optimization)
-
-**Test Coverage**:
-
-- 18 tests: config, key computation, init/deinit, put/get, clear, metadata parsing
-- Edge cases: large files (1MB), disabled cache, multiple formats
-- All tests passing with zero memory leaks
-
-**Technical Notes**:
-
-- Tiger Style compliant (bounded loops, 2+ assertions per function)
-- Zig 0.15 compatible (manual JSON serialization, direct file.writeAll())
-- Same input + same options = same cache key = instant result
-- Different options = different keys (no collisions)
-
-**Future Enhancements**:
-
-- Cache support for C API, Python bindings, Node.js bindings
-- Cache statistics and monitoring
-- Cache warming strategies
-- Distributed cache (Redis, Memcached)
 
 ---
 
@@ -142,48 +126,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Core optimization pipeline (decode → transform → encode → select)
-- libvips integration for image processing
-- JPEG encoder (via libjpeg-turbo)
-- PNG encoder (via libpng)
-- Binary search for size targeting
-- CLI tool with batch processing
-- 67 unit tests, 208 conformance tests
-- Tiger Style methodology (2+ assertions, bounded loops, ≤70 lines)
-
-### Features
-
-- Automatic format selection
-- Size budget enforcement
-- Perceptual quality metrics foundation
-- Batch processing with directory discovery
-- Zero memory leaks (verified with testing.allocator)
+- Core pipeline (decode → transform → encode → select), libvips integration
+- JPEG (libjpeg-turbo), PNG (libpng) encoders, binary search size targeting
+- CLI tool with batch processing, directory discovery
+- 67 unit tests, 208 conformance tests, zero memory leaks
+- Tiger Style: 2+ assertions, bounded loops, ≤70 lines
+- Automatic format selection, size budget enforcement
 
 ---
 
-## Changelog Guidelines
-
-### Format Rules
-
-- **Use point-form** (bullets and sub-bullets, not paragraphs)
-- **Be concise** (1-2 lines per bullet max)
-- **Group related items** (use sub-bullets)
-- **Technical details** (mention file names, line counts, key functions)
-
-### When to Update
-
-- After completing major milestone or feature
-- Keep `[Unreleased]` section current during development
-- Move to versioned section before release
-
-### Structure
-
-- `### Added` - New features, files, capabilities
-- `### Changed` - Modifications to existing functionality
-- `### Deprecated` - Soon-to-be-removed features
-- `### Removed` - Deleted features or files
-- `### Fixed` - Bug fixes
-- `### Security` - Security vulnerability fixes
-
-**Last Updated**: 2025-10-31
-**Project**: Pyjamaz - High-performance image optimizer
+**Last Updated**: 2025-11-01

@@ -1,11 +1,11 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const vips = @import("vips.zig");
+const codec_api = @import("codecs/api.zig");
 const ImageBuffer = @import("types/image_buffer.zig").ImageBuffer;
 const ImageMetadata = @import("types/image_metadata.zig").ImageMetadata;
 const ImageFormat = @import("types/image_metadata.zig").ImageFormat;
 
-/// High-level image operations using libvips
+/// High-level image operations using native codecs
 ///
 /// This module provides the main image processing functions for Pyjamaz:
 /// - decodeImage: Load and normalize image from file
@@ -18,46 +18,44 @@ const ImageFormat = @import("types/image_metadata.zig").ImageFormat;
 /// Decode image from file path
 ///
 /// Steps:
-/// 1. Load image from file
-/// 2. Apply EXIF auto-rotation
-/// 3. Convert to sRGB color space
-/// 4. Return normalized ImageBuffer
+/// 1. Read image file into memory
+/// 2. Detect format from magic bytes
+/// 3. Decode using native codec
+/// 4. Return normalized ImageBuffer (RGB/RGBA in sRGB)
+///
+/// Note: EXIF auto-rotation not yet implemented (future enhancement)
 ///
 /// Safety: Returns ImageBuffer, caller must call deinit()
-/// Requires: VipsContext must be initialized
-/// Tiger Style: 10 assertions (pre-conditions, invariants, post-conditions)
+/// Tiger Style: Bounded file size, explicit error handling
 pub fn decodeImage(allocator: Allocator, path: []const u8) !ImageBuffer {
-    // Pre-conditions (Tiger Style: 2)
+    // Pre-conditions (Tiger Style: 2+)
     std.debug.assert(path.len > 0);
     std.debug.assert(path.len < std.fs.max_path_bytes);
 
-    // Load image
-    var img = try vips.loadImage(path);
-    defer img.deinit();
+    // Read entire file into memory (bounded to 100MB)
+    const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+    const file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
 
-    // Invariant: Loaded image has valid dimensions
-    std.debug.assert(img.width() > 0 and img.width() <= 65535);
-    std.debug.assert(img.height() > 0 and img.height() <= 65535);
+    const file_size = (try file.stat()).size;
+    if (file_size == 0 or file_size > MAX_FILE_SIZE) {
+        return error.InvalidFileSize;
+    }
 
-    // Apply EXIF auto-rotation
-    var rotated = try vips.autorot(&img);
-    defer rotated.deinit();
+    const bytes = try file.readToEndAlloc(allocator, MAX_FILE_SIZE);
+    defer allocator.free(bytes);
 
-    // Invariant: Rotation preserves validity
-    std.debug.assert(rotated.width() > 0 and rotated.height() > 0);
+    // Pre-condition: File has content
+    std.debug.assert(bytes.len > 0);
+    std.debug.assert(bytes.len <= MAX_FILE_SIZE);
 
-    // Convert to sRGB (normalized color space)
-    var srgb = try vips.toSRGB(&rotated);
-    defer srgb.deinit();
+    // Decode using native codec (auto-detects format from magic bytes)
+    const buffer = try codec_api.decode(allocator, bytes);
 
-    // Invariant: Color space conversion succeeded
-    std.debug.assert(srgb.interpretation() == .srgb);
-
-    // Convert to ImageBuffer
-    const buffer = try srgb.toImageBuffer(allocator);
-
-    // Post-conditions (Tiger Style: 2)
-    std.debug.assert(buffer.width > 0 and buffer.height > 0);
+    // Post-conditions (Tiger Style: 2+)
+    std.debug.assert(buffer.width > 0 and buffer.width <= 65535);
+    std.debug.assert(buffer.height > 0 and buffer.height <= 65535);
+    std.debug.assert(buffer.channels == 3 or buffer.channels == 4);
     std.debug.assert(buffer.data.len == @as(usize, buffer.stride) * @as(usize, buffer.height));
 
     return buffer;
@@ -66,46 +64,27 @@ pub fn decodeImage(allocator: Allocator, path: []const u8) !ImageBuffer {
 /// Decode image from memory buffer (v0.4.0 - for perceptual metrics)
 ///
 /// Steps:
-/// 1. Load image from byte buffer
-/// 2. Apply EXIF auto-rotation
-/// 3. Convert to sRGB color space
-/// 4. Return normalized ImageBuffer
+/// 1. Detect format from magic bytes
+/// 2. Decode using native codec
+/// 3. Return normalized ImageBuffer (RGB/RGBA in sRGB)
+///
+/// Note: EXIF auto-rotation not yet implemented (future enhancement)
 ///
 /// Safety: Returns ImageBuffer, caller must call deinit()
-/// Requires: VipsContext must be initialized
-/// Tiger Style: 8 assertions (pre-conditions, invariants, post-conditions)
+/// Tiger Style: Bounded input size, explicit error handling
 pub fn decodeImageFromMemory(allocator: Allocator, bytes: []const u8) !ImageBuffer {
-    // Pre-conditions (Tiger Style: 2)
+    // Pre-conditions (Tiger Style: 2+)
     std.debug.assert(bytes.len > 0);
-    std.debug.assert(bytes.len < 100_000_000); // Max 100MB
+    const MAX_SIZE = 100 * 1024 * 1024; // 100MB
+    std.debug.assert(bytes.len <= MAX_SIZE);
 
-    // Load image from memory
-    var img = try vips.loadImageFromBuffer(bytes);
-    defer img.deinit();
+    // Decode using native codec (auto-detects format)
+    const buffer = try codec_api.decode(allocator, bytes);
 
-    // Invariant: Loaded image has valid dimensions
-    std.debug.assert(img.width() > 0 and img.width() <= 65535);
-    std.debug.assert(img.height() > 0 and img.height() <= 65535);
-
-    // Apply EXIF auto-rotation
-    var rotated = try vips.autorot(&img);
-    defer rotated.deinit();
-
-    // Invariant: Rotation preserves validity
-    std.debug.assert(rotated.width() > 0 and rotated.height() > 0);
-
-    // Convert to sRGB (normalized color space)
-    var srgb = try vips.toSRGB(&rotated);
-    defer srgb.deinit();
-
-    // Invariant: Color space conversion succeeded
-    std.debug.assert(srgb.interpretation() == .srgb);
-
-    // Convert to ImageBuffer
-    const buffer = try srgb.toImageBuffer(allocator);
-
-    // Post-conditions (Tiger Style: 2)
-    std.debug.assert(buffer.width > 0 and buffer.height > 0);
+    // Post-conditions (Tiger Style: 2+)
+    std.debug.assert(buffer.width > 0 and buffer.width <= 65535);
+    std.debug.assert(buffer.height > 0 and buffer.height <= 65535);
+    std.debug.assert(buffer.channels == 3 or buffer.channels == 4);
     std.debug.assert(buffer.data.len == @as(usize, buffer.stride) * @as(usize, buffer.height));
 
     return buffer;
@@ -184,24 +163,27 @@ pub fn normalizeColorSpace(
 
 /// Get image metadata from file without decoding pixels
 ///
-/// This is faster than full decode when you only need dimensions/format
-pub fn getImageMetadata(path: []const u8) !ImageMetadata {
-    // Load image to get metadata
-    var img = try vips.loadImage(path);
-    defer img.deinit();
+/// Note: Currently requires full decode. Future optimization: parse headers only.
+pub fn getImageMetadata(allocator: Allocator, path: []const u8) !ImageMetadata {
+    // Pre-conditions
+    std.debug.assert(path.len > 0);
+    std.debug.assert(path.len < std.fs.max_path_bytes);
 
-    const width = img.width();
-    const height = img.height();
-    const has_alpha = img.hasAlpha();
+    // For now, we need to decode to get accurate metadata
+    // TODO: Implement header-only parsing for each format
+    var buffer = try decodeImage(allocator, path);
+    defer buffer.deinit();
 
-    // Detect format from file extension (simple heuristic)
-    const format = detectFormat(path);
+    // Detect format from file extension
+    const format = detectFormatFromPath(path);
 
-    return ImageMetadata.init(format, width, height, has_alpha);
+    const has_alpha = (buffer.channels == 4);
+
+    return ImageMetadata.init(format, buffer.width, buffer.height, has_alpha);
 }
 
 /// Detect image format from file extension
-fn detectFormat(path: []const u8) ImageFormat {
+fn detectFormatFromPath(path: []const u8) ImageFormat {
     if (std.mem.endsWith(u8, path, ".jpg") or std.mem.endsWith(u8, path, ".jpeg")) {
         return .jpeg;
     } else if (std.mem.endsWith(u8, path, ".png")) {
@@ -219,15 +201,15 @@ fn detectFormat(path: []const u8) ImageFormat {
 // Unit Tests
 // ============================================================================
 
-test "detectFormat recognizes extensions" {
+test "detectFormatFromPath recognizes extensions" {
     const testing = std.testing;
 
-    try testing.expectEqual(ImageFormat.jpeg, detectFormat("test.jpg"));
-    try testing.expectEqual(ImageFormat.jpeg, detectFormat("test.jpeg"));
-    try testing.expectEqual(ImageFormat.png, detectFormat("test.png"));
-    try testing.expectEqual(ImageFormat.webp, detectFormat("test.webp"));
-    try testing.expectEqual(ImageFormat.avif, detectFormat("test.avif"));
-    try testing.expectEqual(ImageFormat.unknown, detectFormat("test.bmp"));
+    try testing.expectEqual(ImageFormat.jpeg, detectFormatFromPath("test.jpg"));
+    try testing.expectEqual(ImageFormat.jpeg, detectFormatFromPath("test.jpeg"));
+    try testing.expectEqual(ImageFormat.png, detectFormatFromPath("test.png"));
+    try testing.expectEqual(ImageFormat.webp, detectFormatFromPath("test.webp"));
+    try testing.expectEqual(ImageFormat.avif, detectFormatFromPath("test.avif"));
+    try testing.expectEqual(ImageFormat.unknown, detectFormatFromPath("test.bmp"));
 }
 
 // Note: Full integration tests require actual image files

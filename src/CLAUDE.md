@@ -7,12 +7,13 @@
 ## Table of Contents
 
 1. [Source Organization](#source-organization)
-2. [Tiger Style Enforcement](#tiger-style-enforcement)
-3. [Type Conventions](#type-conventions)
-4. [Memory Management](#memory-management)
-5. [Error Handling](#error-handling)
-6. [Testing](#testing)
-7. [Documentation Updates](#documentation-updates)
+2. [Cross-Language API Consistency](#cross-language-api-consistency)
+3. [Tiger Style Enforcement](#tiger-style-enforcement)
+4. [Type Conventions](#type-conventions)
+5. [Memory Management](#memory-management)
+6. [Error Handling](#error-handling)
+7. [Testing](#testing)
+8. [Documentation Updates](#documentation-updates)
 
 ---
 
@@ -30,6 +31,61 @@
 - **Mirror test structure** - `src/foo/bar.zig` → `src/test/unit/foo/bar_test.zig`
 - **Keep files focused** - Single, clear purpose per file
 - **Public API first** - Export functions/types at top
+
+---
+
+## Cross-Language API Consistency
+
+**CRITICAL**: This project provides bindings for multiple languages. ALL changes must propagate across language boundaries.
+
+### The Rule
+When you modify core Zig functionality, you MUST:
+
+1. **Update Node.js bindings** (`bindings/node/`)
+   - Update TypeScript types in `.d.ts` files
+   - Update FFI calls in implementation
+   - Add tests in `bindings/node/test/`
+   - Update examples if API changed
+
+2. **Update Python bindings** (`bindings/python/`)
+   - Update Python wrapper in `pyjamaz/` module
+   - Update type hints
+   - Add tests in `bindings/python/tests/`
+   - Update examples if API changed
+
+3. **Test ALL languages**
+   ```bash
+   # Zig tests
+   zig build test
+
+   # Node.js tests
+   cd bindings/node && npm test
+
+   # Python tests
+   cd bindings/python && python -m pytest tests/
+   ```
+
+### Examples of Changes That Propagate
+
+**New Feature** → Add to Zig, Node.js wrapper, Python wrapper + tests in all three
+
+**API Change** → Update function signature in all three + update all tests
+
+**Bug Fix** → Fix in Zig, add regression test in all three languages
+
+**Performance Optimization** → Add benchmark in all three languages
+
+### Checklist Before Commit
+- [ ] Zig implementation complete
+- [ ] Zig tests pass (`zig build test`)
+- [ ] Node.js wrapper updated
+- [ ] Node.js tests pass (`npm test`)
+- [ ] Python wrapper updated
+- [ ] Python tests pass (`pytest`)
+- [ ] Examples updated (if API changed)
+- [ ] Documentation updated in all three
+
+**Remember**: Users may consume this library from any language. Consistency across bindings is NOT optional - it's a requirement for quality.
 
 ---
 
@@ -342,6 +398,77 @@ if (result.output_len > 0) {
 - Use manual serialization for stability
 - Escape strings: `\\`, `\"`, `\n`
 
+### Native Codec Integration (2025-11-01)
+
+**C Library FFI Best Practices**:
+- Copy C-allocated memory to Zig allocator immediately
+- Always `defer` cleanup for C resources (jpeg_destroy, WebPFree, avifRWDataFree)
+- Validate C pointer results before dereferencing
+- Check return codes from C functions, convert to Zig errors
+
+**Magic Number Defense-in-Depth**:
+- Validate on decode (input validation)
+- Validate on encode (output verification)
+- Example: `api.zig:78` - verify after encoding for defense
+
+**Format-Specific Limits**:
+- JPEG/PNG: 65535 max dimension (16-bit)
+- WebP: 16383 max dimension (14-bit + 1)
+- AVIF: 65536 max dimension
+- All: 100MB max input size (decompression bomb protection)
+
+**Channel Handling**:
+- JPEG: Always RGB (3 channels), RGBA→RGB conversion required
+- PNG: Preserves channel count (RGB=3, RGBA=4)
+- WebP: Decode always returns RGBA (4 channels) for consistency
+- AVIF: Decode always returns RGBA (4 channels) for consistency
+- Document channel changes in function comments
+
+**Lossless Encoding Triggers**:
+- WebP: `quality == 100` triggers `WebPEncodeLosslessRGB/RGBA`
+- AVIF: `quality == 100` uses quality=100 (near-lossless)
+- PNG: Always lossless, quality controls compression level (0-9)
+- JPEG: Always lossy, no lossless mode
+
+**RAII Pattern for C FFI**:
+```zig
+// ✅ GOOD: Cleanup immediately after allocation
+const png_ptr = png_create_write_struct(...) orelse return Error.InitFailed;
+var png_ptr_opt: ?*png_structp = png_ptr;
+defer png_destroy_write_struct(&png_ptr_opt, &info_ptr_opt);
+
+const encoder = avifEncoderCreate() orelse return Error.InitFailed;
+defer avifEncoderDestroy(encoder);
+```
+
+**Stack vs Heap Allocation**:
+- Small buffers (<4KB): Stack allocation OK
+- Large buffers (>4KB): Use heap allocation to avoid stack overflow
+- Example: JPEG RGB conversion buffer (196KB) should use heap
+- Rule: If buffer size depends on user input (dimensions), use heap
+
+**Error Propagation from C Callbacks**:
+```zig
+// ❌ BAD: Silent failure in C callback
+fn callback(...) callconv(.c) void {
+    operation() catch return; // Error lost!
+}
+
+// ✅ GOOD: Track error in context, check after callback returns
+const Context = struct {
+    data: ArrayList(u8),
+    had_error: bool = false,
+};
+fn callback(...) callconv(.c) void {
+    ctx.data.append(...) catch {
+        ctx.had_error = true;
+        return;
+    };
+}
+// After C operation:
+if (ctx.had_error) return Error.OperationFailed;
+```
+
 ---
 
 ## Resources
@@ -353,5 +480,5 @@ if (result.output_len > 0) {
 
 ---
 
-**Last Updated**: 2025-10-31
-**Version**: 2.0 (Compact Edition)
+**Last Updated**: 2025-11-01
+**Version**: 2.1 (Milestone 3: Native Codecs)

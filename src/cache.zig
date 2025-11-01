@@ -687,17 +687,17 @@ test "parseMetadata and writeMetadata round-trip" {
 }
 
 test "Cache: init and deinit" {
-    var tmp_dir = testing.tmpDir(.{});
-    defer tmp_dir.cleanup();
-
-    const cache_path = try std.fmt.allocPrint(testing.allocator, "{s}/cache", .{tmp_dir.sub_path});
-    defer testing.allocator.free(cache_path);
+    // Simple approach: Use hardcoded /tmp path (no random dirs in project root)
+    const cache_path = "/tmp/pyjamaz-cache-test";
 
     const config = CacheConfig.init(cache_path);
     var cache = try Cache.init(testing.allocator, config);
     defer cache.deinit();
 
     // Verify cache directory was created
-    const stat = try fs.cwd().statFile(cache_path);
-    try testing.expect(stat.kind == .directory);
+    var dir = try fs.openDirAbsolute(cache_path, .{});
+    dir.close();
+
+    // Cleanup
+    try fs.deleteDirAbsolute(cache_path);
 }

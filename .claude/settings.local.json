@@ -18,7 +18,9 @@
       "Bash(for f in /Users/ongteckwu/toolchain-sawman/parser/src/{resolver,loader,path_utils,package_json,graph}.zig)",
       "Bash(find:*)",
       "Bash(wasm-opt:*)",
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(otool:*)"
     ],
     "deny": [],
     "ask": []

@@ -165,7 +165,132 @@ const J_DCT_METHOD = enum(c_int) {
     JDCT_FLOAT = 2,
 };
 
-// External C functions from libjpeg
+/// JPEG decompress structure (simplified - only fields we need)
+const jpeg_decompress_struct = extern struct {
+    err: ?*jpeg_error_mgr,
+    mem: ?*anyopaque,
+    progress: ?*anyopaque,
+    client_data: ?*anyopaque,
+    is_decompressor: c_int,
+    global_state: c_int,
+
+    src: ?*anyopaque,
+    image_width: c_uint,
+    image_height: c_uint,
+    num_components: c_int,
+    jpeg_color_space: J_COLOR_SPACE,
+
+    out_color_space: J_COLOR_SPACE,
+    scale_num: c_uint,
+    scale_denom: c_uint,
+
+    output_gamma: f64,
+    buffered_image: c_int,
+    raw_data_out: c_int,
+
+    dct_method: J_DCT_METHOD,
+    do_fancy_upsampling: c_int,
+    do_block_smoothing: c_int,
+
+    quantize_colors: c_int,
+    dither_mode: c_int,
+    two_pass_quantize: c_int,
+    desired_number_of_colors: c_int,
+
+    enable_1pass_quant: c_int,
+    enable_external_quant: c_int,
+    enable_2pass_quant: c_int,
+
+    output_width: c_uint,
+    output_height: c_uint,
+    out_color_components: c_int,
+    output_components: c_int,
+    rec_outbuf_height: c_int,
+
+    actual_number_of_colors: c_int,
+    colormap: ?*anyopaque,
+
+    output_scanline: c_uint,
+    input_scan_number: c_int,
+    input_iMCU_row: c_uint,
+
+    output_scan_number: c_int,
+    output_iMCU_row: c_uint,
+
+    coef_bits: ?*anyopaque,
+    quant_tbl_ptrs: [4]?*anyopaque,
+    dc_huff_tbl_ptrs: [4]?*anyopaque,
+    ac_huff_tbl_ptrs: [4]?*anyopaque,
+
+    data_precision: c_int,
+    comp_info: ?*anyopaque,
+
+    progressive_mode: c_int,
+    arith_code: c_int,
+
+    arith_dc_L: [16]u8,
+    arith_dc_U: [16]u8,
+    arith_ac_K: [16]u8,
+
+    restart_interval: c_uint,
+    saw_JFIF_marker: c_int,
+
+    JFIF_major_version: u8,
+    JFIF_minor_version: u8,
+    density_unit: u8,
+    X_density: u16,
+    Y_density: u16,
+
+    saw_Adobe_marker: c_int,
+    Adobe_transform: u8,
+
+    CCIR601_sampling: c_int,
+
+    marker_list: ?*anyopaque,
+
+    max_h_samp_factor: c_int,
+    max_v_samp_factor: c_int,
+
+    min_DCT_h_scaled_size: c_int,
+    min_DCT_v_scaled_size: c_int,
+
+    total_iMCU_rows: c_uint,
+
+    sample_range_limit: ?*anyopaque,
+
+    comps_in_scan: c_int,
+    cur_comp_info: [4]?*anyopaque,
+
+    MCUs_per_row: c_uint,
+    MCU_rows_in_scan: c_uint,
+    blocks_in_MCU: c_int,
+    MCU_membership: [10]c_int,
+
+    Ss: c_int,
+    Se: c_int,
+    Ah: c_int,
+    Al: c_int,
+
+    block_size: c_int,
+    natural_order: ?*const c_int,
+    lim_Se: c_int,
+
+    unread_marker: c_int,
+
+    master: ?*anyopaque,
+    main: ?*anyopaque,
+    coef: ?*anyopaque,
+    post: ?*anyopaque,
+    inputctl: ?*anyopaque,
+    marker: ?*anyopaque,
+    entropy: ?*anyopaque,
+    idct: ?*anyopaque,
+    upsample: ?*anyopaque,
+    cconvert: ?*anyopaque,
+    cquantize: ?*anyopaque,
+};
+
+// External C functions from libjpeg (compression)
 extern "c" fn jpeg_std_error(err: *jpeg_error_mgr) *jpeg_error_mgr;
 extern "c" fn jpeg_CreateCompress(cinfo: *jpeg_compress_struct, version: c_int, structsize: usize) void;
 extern "c" fn jpeg_destroy_compress(cinfo: *jpeg_compress_struct) void;
@@ -175,6 +300,16 @@ extern "c" fn jpeg_set_quality(cinfo: *jpeg_compress_struct, quality: c_int, for
 extern "c" fn jpeg_start_compress(cinfo: *jpeg_compress_struct, write_all_tables: c_int) void;
 extern "c" fn jpeg_write_scanlines(cinfo: *jpeg_compress_struct, scanlines: [*c][*c]u8, num_lines: c_uint) c_uint;
 extern "c" fn jpeg_finish_compress(cinfo: *jpeg_compress_struct) void;
+
+// External C functions from libjpeg (decompression)
+extern "c" fn jpeg_CreateDecompress(cinfo: *jpeg_decompress_struct, version: c_int, structsize: usize) void;
+extern "c" fn jpeg_destroy_decompress(cinfo: *jpeg_decompress_struct) void;
+extern "c" fn jpeg_mem_src(cinfo: *jpeg_decompress_struct, inbuffer: [*c]const u8, insize: c_ulong) void;
+extern "c" fn jpeg_read_header(cinfo: *jpeg_decompress_struct, require_image: c_int) c_int;
+extern "c" fn jpeg_start_decompress(cinfo: *jpeg_decompress_struct) c_int;
+extern "c" fn jpeg_read_scanlines(cinfo: *jpeg_decompress_struct, scanlines: [*c][*c]u8, max_lines: c_uint) c_uint;
+extern "c" fn jpeg_finish_decompress(cinfo: *jpeg_decompress_struct) c_int;
+extern "c" fn jpeg_abort_decompress(cinfo: *jpeg_decompress_struct) void;
 
 // ============================================================================
 // Error Handling
@@ -224,8 +359,8 @@ pub fn encodeJPEG(
     _ = jpeg_std_error(&jerr);
     cinfo.err = &jerr;
 
-    // Create compressor
-    jpeg_CreateCompress(&cinfo, 62, @sizeOf(jpeg_compress_struct)); // 62 = JPEG_LIB_VERSION
+    // Create compressor (80 = libjpeg-turbo 3.x, 62 = libjpeg 6.2)
+    jpeg_CreateCompress(&cinfo, 80, @sizeOf(jpeg_compress_struct));
     defer jpeg_destroy_compress(&cinfo);
 
     // Set up memory destination
@@ -255,16 +390,24 @@ pub fn encodeJPEG(
     // Start compression
     jpeg_start_compress(&cinfo, 1);
 
+    // Allocate RGB conversion buffer on heap if needed (avoid 196KB stack allocation)
+    // Tiger Style: Heap allocation for user-dependent sizes, prevents stack overflow
+    var rgb_row_buffer: ?[]u8 = null;
+    defer if (rgb_row_buffer) |buf| allocator.free(buf);
+
+    if (buffer.channels == 4) {
+        rgb_row_buffer = try allocator.alloc(u8, buffer.width * 3);
+    }
+
     // Write scanlines
     var row: c_uint = 0;
     while (row < buffer.height) : (row += 1) {
         // Get row data
         const row_data = buffer.getRow(row);
 
-        // If RGBA, need to strip alpha channel
-        var rgb_row: [65535 * 3]u8 = undefined; // Max width * 3 channels
         if (buffer.channels == 4) {
-            // Convert RGBA to RGB
+            // Convert RGBA to RGB using heap-allocated buffer
+            const rgb_row = rgb_row_buffer.?;
             var x: u32 = 0;
             while (x < buffer.width) : (x += 1) {
                 const src_offset = x * 4;
@@ -274,7 +417,7 @@ pub fn encodeJPEG(
                 rgb_row[dst_offset + 2] = row_data[src_offset + 2]; // B
                 // Skip alpha
             }
-            var row_ptr: [*c]u8 = &rgb_row;
+            var row_ptr: [*c]u8 = rgb_row.ptr;
             _ = jpeg_write_scanlines(&cinfo, @ptrCast(&row_ptr), 1);
         } else {
             // Already RGB
@@ -304,6 +447,110 @@ pub fn encodeJPEG(
 
     std.debug.assert(result.len == outsize); // Post-condition
     return result;
+}
+
+// ============================================================================
+// JPEG Decoding
+// ============================================================================
+
+/// Decode JPEG bytes to ImageBuffer
+///
+/// Input: JPEG-encoded bytes
+/// Output: ImageBuffer with RGB data (always 3 channels)
+///
+/// Safety: Returns owned ImageBuffer, caller must call .de init()
+/// Tiger Style: Bounded dimensions, explicit error handling
+pub fn decodeJPEG(
+    allocator: Allocator,
+    jpeg_data: []const u8,
+) !ImageBuffer {
+    // Pre-conditions (Tiger Style)
+    std.debug.assert(jpeg_data.len > 0);
+    std.debug.assert(jpeg_data.len < 100 * 1024 * 1024); // Max 100MB
+
+    // Verify JPEG magic bytes
+    if (jpeg_data.len < 2 or jpeg_data[0] != 0xFF or jpeg_data[1] != 0xD8) {
+        return JpegError.DecodeFailed;
+    }
+
+    var jerr: jpeg_error_mgr = undefined;
+    var cinfo: jpeg_decompress_struct = undefined;
+
+    // Initialize error manager
+    _ = jpeg_std_error(&jerr);
+    cinfo.err = &jerr;
+
+    // Create decompressor (80 = libjpeg-turbo 3.x, 62 = libjpeg 6.2)
+    jpeg_CreateDecompress(&cinfo, 80, @sizeOf(jpeg_decompress_struct));
+    defer jpeg_destroy_decompress(&cinfo);
+
+    // Set up memory source
+    jpeg_mem_src(&cinfo, jpeg_data.ptr, @intCast(jpeg_data.len));
+
+    // Read JPEG header
+    const header_result = jpeg_read_header(&cinfo, 1);
+    if (header_result != 1) { // JPEG_HEADER_OK = 1
+        return JpegError.DecodeFailed;
+    }
+
+    // Validate dimensions (Tiger Style: bounded)
+    if (cinfo.image_width == 0 or cinfo.image_height == 0) {
+        return JpegError.InvalidImage;
+    }
+    if (cinfo.image_width > 65535 or cinfo.image_height > 65535) {
+        return JpegError.InvalidImage;
+    }
+
+    // Force RGB output
+    cinfo.out_color_space = .JCS_RGB;
+
+    // Start decompression
+    _ = jpeg_start_decompress(&cinfo);
+
+    // Allocate image buffer
+    const width: u32 = @intCast(cinfo.output_width);
+    const height: u32 = @intCast(cinfo.output_height);
+    const channels: u8 = @intCast(cinfo.output_components);
+
+    std.debug.assert(channels == 3); // Should always be RGB
+    std.debug.assert(width > 0 and width <= 65535);
+    std.debug.assert(height > 0 and height <= 65535);
+
+    var buffer = try ImageBuffer.init(allocator, width, height, channels);
+    errdefer buffer.deinit();
+
+    // Read scanlines
+    var row: u32 = 0;
+    const row_stride: usize = width * @as(usize, channels);
+
+    while (cinfo.output_scanline < cinfo.output_height) {
+        std.debug.assert(row < height); // Loop invariant
+
+        // Get pointer to current row in buffer
+        const row_start = row * row_stride;
+        var row_ptr: [*c]u8 = buffer.data[row_start..].ptr;
+
+        // Read one scanline
+        const lines_read = jpeg_read_scanlines(&cinfo, @ptrCast(&row_ptr), 1);
+        if (lines_read != 1) {
+            return JpegError.DecodeFailed;
+        }
+
+        row += 1;
+    }
+
+    std.debug.assert(row == height); // Post-loop assertion
+    std.debug.assert(cinfo.output_scanline == cinfo.output_height);
+
+    // Finish decompression
+    _ = jpeg_finish_decompress(&cinfo);
+
+    // Post-conditions
+    std.debug.assert(buffer.width == width);
+    std.debug.assert(buffer.height == height);
+    std.debug.assert(buffer.channels == 3);
+
+    return buffer;
 }
 
 // ============================================================================
@@ -356,4 +603,47 @@ test "JPEG encoding handles RGBA by stripping alpha" {
     defer testing.allocator.free(jpeg_data);
 
     try testing.expect(jpeg_data.len > 0);
+}
+
+test "JPEG decode and encode roundtrip" {
+    const testing = std.testing;
+
+    // Create test image
+    var buffer = try ImageBuffer.init(testing.allocator, 16, 16, 3);
+    defer buffer.deinit();
+
+    // Fill with gradient pattern
+    var y: u32 = 0;
+    while (y < 16) : (y += 1) {
+        var x: u32 = 0;
+        while (x < 16) : (x += 1) {
+            const offset = (y * 16 + x) * 3;
+            buffer.data[offset + 0] = @truncate(x * 16); // R gradient
+            buffer.data[offset + 1] = @truncate(y * 16); // G gradient
+            buffer.data[offset + 2] = 128; // B constant
+        }
+    }
+
+    // Encode
+    const jpeg_data = try encodeJPEG(testing.allocator, &buffer, 90, false);
+    defer testing.allocator.free(jpeg_data);
+
+    // Decode
+    var decoded = try decodeJPEG(testing.allocator, jpeg_data);
+    defer decoded.deinit();
+
+    // Verify dimensions
+    try testing.expectEqual(@as(u32, 16), decoded.width);
+    try testing.expectEqual(@as(u32, 16), decoded.height);
+    try testing.expectEqual(@as(u32, 3), decoded.channels);
+}
+
+test "JPEG decode detects invalid data" {
+    const testing = std.testing;
+
+    // Try to decode invalid JPEG data
+    const invalid_data = [_]u8{ 0x00, 0x00, 0x00, 0x00 };
+    const result = decodeJPEG(testing.allocator, &invalid_data);
+
+    try testing.expectError(JpegError.DecodeFailed, result);
 }

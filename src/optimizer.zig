@@ -161,7 +161,7 @@ fn addOriginalCandidate(
     errdefer allocator.free(original_bytes);
 
     // Get original format with graceful fallback
-    const original_format = image_ops.getImageMetadata(input_path) catch |err| blk: {
+    const original_format = image_ops.getImageMetadata(allocator, input_path) catch |err| blk: {
         std.log.warn("Failed to get original metadata: {}, attempting format detection from bytes", .{err});
 
         const detected_format = detectFormatFromMagic(original_bytes);

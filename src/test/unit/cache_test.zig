@@ -4,6 +4,7 @@
 
 const std = @import("std");
 const testing = std.testing;
+const fs = std.fs;
 const cache_mod = @import("../../cache.zig");
 const Cache = cache_mod.Cache;
 const CacheConfig = cache_mod.CacheConfig;
@@ -11,6 +12,15 @@ const CacheMetadata = cache_mod.CacheMetadata;
 const types = @import("../../types.zig");
 const ImageFormat = types.ImageFormat;
 const MetricType = types.MetricType;
+
+// Helper counter for unique test paths
+var test_counter: u32 = 0;
+
+/// Get unique test path in /tmp (avoids cluttering project root)
+fn getTestCachePath(allocator: std.mem.Allocator) ![]const u8 {
+    test_counter += 1;
+    return std.fmt.allocPrint(allocator, "/tmp/pyjamaz-test-{d}", .{test_counter});
+}
 
 // ============================================================================
 // CacheConfig Tests
@@ -96,33 +106,29 @@ test "Cache.computeKey handles null options" {
 test "Cache.init creates cache directory" {
     const allocator = testing.allocator;
 
-    // Use tmpDir for test isolation
-    const tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-
-    const cache_path = try std.fmt.allocPrint(allocator, "{s}/cache", .{tmp.sub_path});
+    // Use /tmp to avoid cluttering project root
+    const cache_path = try getTestCachePath(allocator);
     defer allocator.free(cache_path);
+    defer fs.deleteTreeAbsolute(cache_path) catch {};
 
     const config = CacheConfig.init(cache_path);
     var test_cache = try Cache.init(allocator, config);
     defer test_cache.deinit();
 
     // Verify cache directory was created
-    const stat = try std.fs.cwd().statFile(cache_path);
-    try testing.expect(stat.kind == .directory);
+    var dir = try fs.openDirAbsolute(cache_path, .{});
+    dir.close();
 }
 
 test "Cache.init handles existing directory" {
     const allocator = testing.allocator;
 
-    const tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-
-    const cache_path = try std.fmt.allocPrint(allocator, "{s}/cache", .{tmp.sub_path});
+    const cache_path = try getTestCachePath(allocator);
     defer allocator.free(cache_path);
+    defer fs.deleteTreeAbsolute(cache_path) catch {};
 
     // Create directory first
-    try std.fs.cwd().makePath(cache_path);
+    try std.fs.makeDirAbsolute(cache_path);
 
     // Should not error
     const config = CacheConfig.init(cache_path);
@@ -137,11 +143,9 @@ test "Cache.init handles existing directory" {
 test "Cache.put stores and Cache.get retrieves data" {
     const allocator = testing.allocator;
 
-    const tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-
-    const cache_path = try std.fmt.allocPrint(allocator, "{s}/cache", .{tmp.sub_path});
+    const cache_path = try getTestCachePath(allocator);
     defer allocator.free(cache_path);
+    defer fs.deleteTreeAbsolute(cache_path) catch {};
 
     const config = CacheConfig.init(cache_path);
     var test_cache = try Cache.init(allocator, config);
@@ -184,11 +188,9 @@ test "Cache.put stores and Cache.get retrieves data" {
 test "Cache.get returns null on cache miss" {
     const allocator = testing.allocator;
 
-    const tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-
-    const cache_path = try std.fmt.allocPrint(allocator, "{s}/cache", .{tmp.sub_path});
+    const cache_path = try getTestCachePath(allocator);
     defer allocator.free(cache_path);
+    defer fs.deleteTreeAbsolute(cache_path) catch {};
 
     const config = CacheConfig.init(cache_path);
     var test_cache = try Cache.init(allocator, config);
@@ -205,11 +207,9 @@ test "Cache.get returns null on cache miss" {
 test "Cache.put and get with multiple formats" {
     const allocator = testing.allocator;
 
-    const tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-
-    const cache_path = try std.fmt.allocPrint(allocator, "{s}/cache", .{tmp.sub_path});
+    const cache_path = try getTestCachePath(allocator);
     defer allocator.free(cache_path);
+    defer fs.deleteTreeAbsolute(cache_path) catch {};
 
     const config = CacheConfig.init(cache_path);
     var test_cache = try Cache.init(allocator, config);
@@ -270,11 +270,9 @@ test "Cache.put and get with multiple formats" {
 test "Cache.clear removes all entries" {
     const allocator = testing.allocator;
 
-    const tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-
-    const cache_path = try std.fmt.allocPrint(allocator, "{s}/cache", .{tmp.sub_path});
+    const cache_path = try getTestCachePath(allocator);
     defer allocator.free(cache_path);
+    defer fs.deleteTreeAbsolute(cache_path) catch {};
 
     const config = CacheConfig.init(cache_path);
     var test_cache = try Cache.init(allocator, config);
@@ -384,11 +382,9 @@ test "parseMetadata handles all formats" {
 test "Cache.put handles large files" {
     const allocator = testing.allocator;
 
-    const tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-
-    const cache_path = try std.fmt.allocPrint(allocator, "{s}/cache", .{tmp.sub_path});
+    const cache_path = try getTestCachePath(allocator);
     defer allocator.free(cache_path);
+    defer fs.deleteTreeAbsolute(cache_path) catch {};
 
     const config = CacheConfig.init(cache_path);
     var test_cache = try Cache.init(allocator, config);
@@ -433,11 +429,9 @@ test "Cache.put handles large files" {
 test "Cache with disabled config returns null" {
     const allocator = testing.allocator;
 
-    const tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-
-    const cache_path = try std.fmt.allocPrint(allocator, "{s}/cache", .{tmp.sub_path});
+    const cache_path = try getTestCachePath(allocator);
     defer allocator.free(cache_path);
+    defer fs.deleteTreeAbsolute(cache_path) catch {};
 
     var config = CacheConfig.init(cache_path);
     config.enabled = false; // Disable caching

@@ -9,7 +9,7 @@ const test_utils = @import("../test_utils.zig");
 
 // TODO: Skip vips tests due to libvips thread-safety issues in parallel test execution
 // Re-enable after implementing proper locking around all vips operations
-const SKIP_VIPS_TESTS = true;
+const SKIP_VIPS_TESTS = false; // Native codecs now, no longer using libvips
 
 // Test image paths
 const TEST_PNG_PATH = "testdata/conformance/pngsuite/basn3p02.png"; // 32x32 PNG
@@ -110,9 +110,9 @@ test "getImageMetadata: extracts metadata without full decode" {
     if (SKIP_VIPS_TESTS) return error.SkipZigTest;
 
     try ensureVipsInit();
-    
 
-    const metadata = try image_ops.getImageMetadata(TEST_PNG_PATH);
+
+    const metadata = try image_ops.getImageMetadata(testing.allocator, TEST_PNG_PATH);
 
     // Verify metadata is valid
     try testing.expect(metadata.original_width > 0);
@@ -124,9 +124,9 @@ test "getImageMetadata: detects alpha channel" {
     if (SKIP_VIPS_TESTS) return error.SkipZigTest;
 
     try ensureVipsInit();
-    
 
-    const metadata_alpha = try image_ops.getImageMetadata(TEST_PNG_ALPHA_PATH);
+
+    const metadata_alpha = try image_ops.getImageMetadata(testing.allocator, TEST_PNG_ALPHA_PATH);
 
     // This image should have alpha (or be detected as potentially having it)
     // Note: Detection might vary, so we just verify we get valid metadata
@@ -138,10 +138,10 @@ test "getImageMetadata: handles invalid file" {
     if (SKIP_VIPS_TESTS) return error.SkipZigTest;
 
     try ensureVipsInit();
-    
 
-    const result = image_ops.getImageMetadata(INVALID_PATH);
-    try testing.expectError(vips.VipsError.LoadFailed, result);
+    const result = image_ops.getImageMetadata(testing.allocator, INVALID_PATH);
+    // With native codecs, file not found returns FileNotFound not LoadFailed
+    try testing.expectError(error.FileNotFound, result);
 }
 
 // ============================================================================
@@ -152,10 +152,10 @@ test "detectFormat: recognizes file extensions" {
     if (SKIP_VIPS_TESTS) return error.SkipZigTest;
 
     try ensureVipsInit();
-    
+
 
     // Test PNG extension
-    const metadata_png = try image_ops.getImageMetadata(TEST_PNG_PATH);
+    const metadata_png = try image_ops.getImageMetadata(testing.allocator, TEST_PNG_PATH);
     try testing.expectEqual(ImageFormat.png, metadata_png.format);
 
     // Note: For comprehensive extension testing, see the inline test in image_ops.zig
@@ -220,7 +220,7 @@ test "getImageMetadata: no memory leaks on repeated calls" {
     // Get metadata many times to detect leaks
     var i: u32 = 0;
     while (i < 100) : (i += 1) {
-        const metadata = try image_ops.getImageMetadata(TEST_PNG_PATH);
+        const metadata = try image_ops.getImageMetadata(testing.allocator, TEST_PNG_PATH);
         _ = metadata;
 
         // Metadata is a small struct with no owned memory, but verify no leaks
@@ -237,10 +237,10 @@ test "full pipeline: decode → normalize → metadata" {
     const allocator = testing.allocator;
 
     try ensureVipsInit();
-    
+
 
     // Get metadata first (fast)
-    const metadata = try image_ops.getImageMetadata(TEST_PNG_PATH);
+    const metadata = try image_ops.getImageMetadata(testing.allocator, TEST_PNG_PATH);
     const expected_width = metadata.original_width;
     const expected_height = metadata.original_height;
 

@@ -10,7 +10,7 @@ const OptimizationJob = optimizer.OptimizationJob;
 const OptimizationResult = optimizer.OptimizationResult;
 
 // Skip libvips tests (thread-safety issues in parallel test execution)
-const SKIP_VIPS_TESTS = true;
+const SKIP_VIPS_TESTS = false; // Native codecs now, no longer using libvips
 
 // Test PNG path (from other tests)
 const TEST_PNG_PATH = "testdata/basic/100x100_rgb.png";

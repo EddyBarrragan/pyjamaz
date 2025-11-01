@@ -200,8 +200,9 @@ test "binarySearchQuality: converges to target size" {
     }
 
     // Search for a target size (this is approximate, actual size varies by codec)
-    // Note: 10x10 JPEG has ~800 byte minimum due to headers, so target 850 bytes
-    const target_bytes: u32 = 850;
+    // Note: 10x10 solid color JPEG is highly compressible
+    // Native libjpeg-turbo produces ~289 bytes, so target 300 bytes
+    const target_bytes: u32 = 300;
     const result = try binarySearchQuality(
         testing.allocator,
         buffer,
@@ -217,8 +218,9 @@ test "binarySearchQuality: converges to target size" {
     try testing.expect(result.iterations > 0 and result.iterations <= 7);
 
     // The result should be reasonably close to target
-    // (within 100 bytes for this small test image)
-    const max_distance: u32 = 100;
+    // Note: Native libjpeg-turbo may produce different sizes than libvips
+    // For a 10x10 solid color image, tolerance of 50 bytes is reasonable
+    const max_distance: u32 = 50;
     const distance = if (result.size > target_bytes)
         result.size - target_bytes
     else

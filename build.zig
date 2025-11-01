@@ -27,10 +27,11 @@ pub fn build(b: *std.Build) void {
     exe.linkSystemLibrary("vips");
     exe.linkLibC();
 
-    // Phase 4: Codecs
-    exe.linkSystemLibrary("jpeg"); // libjpeg-turbo or mozjpeg
-    // exe.linkSystemLibrary("png");
-    // exe.linkSystemLibrary("webp");
+    // Phase 4: Codecs - Native decoder/encoder libraries
+    exe.linkSystemLibrary("jpeg"); // libjpeg-turbo (decode + encode)
+    exe.linkSystemLibrary("png"); // libpng (decode + encode)
+    exe.linkSystemLibrary("webp"); // libwebp (decode + encode)
+    exe.linkSystemLibrary("avif"); // libavif (AVIF decode + encode, wraps aom/dav1d)
 
     // v0.4.0: Perceptual metrics
     exe.linkSystemLibrary("dssim");
@@ -51,6 +52,9 @@ pub fn build(b: *std.Build) void {
     lib.root_module.addImport("fssimu2", fssimu2_module);
     lib.linkSystemLibrary("vips");
     lib.linkSystemLibrary("jpeg");
+    lib.linkSystemLibrary("png");
+    lib.linkSystemLibrary("webp");
+    lib.linkSystemLibrary("avif");
     lib.linkSystemLibrary("dssim");
     lib.linkLibC();
     b.installArtifact(lib);
@@ -78,6 +82,9 @@ pub fn build(b: *std.Build) void {
     // Link C libraries for tests too
     unit_tests.linkSystemLibrary("vips");
     unit_tests.linkSystemLibrary("jpeg");
+    unit_tests.linkSystemLibrary("png");
+    unit_tests.linkSystemLibrary("webp");
+    unit_tests.linkSystemLibrary("avif");
     unit_tests.linkSystemLibrary("dssim");
     unit_tests.linkLibC();
 
@@ -104,6 +111,9 @@ pub fn build(b: *std.Build) void {
     // Link C libraries for integration tests
     integration_tests.linkSystemLibrary("vips");
     integration_tests.linkSystemLibrary("jpeg");
+    integration_tests.linkSystemLibrary("png");
+    integration_tests.linkSystemLibrary("webp");
+    integration_tests.linkSystemLibrary("avif");
     integration_tests.linkSystemLibrary("dssim");
     integration_tests.linkLibC();
 
@@ -130,6 +140,9 @@ pub fn build(b: *std.Build) void {
     // Link C libraries for conformance tests
     conformance_exe.linkSystemLibrary("vips");
     conformance_exe.linkSystemLibrary("jpeg");
+    conformance_exe.linkSystemLibrary("png");
+    conformance_exe.linkSystemLibrary("webp");
+    conformance_exe.linkSystemLibrary("avif");
     conformance_exe.linkSystemLibrary("dssim");
     conformance_exe.linkLibC();
 
@@ -159,6 +172,9 @@ pub fn build(b: *std.Build) void {
     // Link C libraries for benchmarks
     benchmark_exe.linkSystemLibrary("vips");
     benchmark_exe.linkSystemLibrary("jpeg");
+    benchmark_exe.linkSystemLibrary("png");
+    benchmark_exe.linkSystemLibrary("webp");
+    benchmark_exe.linkSystemLibrary("avif");
     benchmark_exe.linkSystemLibrary("dssim");
     benchmark_exe.linkLibC();
 
@@ -174,6 +190,38 @@ pub fn build(b: *std.Build) void {
     const benchmark_step = b.step("benchmark", "Run parallel encoding performance benchmarks");
     benchmark_step.dependOn(&run_benchmark.step);
 
+    // Codec baseline benchmark (libvips performance)
+    const codec_baseline_exe = b.addExecutable(.{
+        .name = "codec_baseline",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/codec_baseline_root.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    codec_baseline_exe.root_module.addImport("fssimu2", fssimu2_module);
+
+    // Link C libraries for codec baseline
+    codec_baseline_exe.linkSystemLibrary("vips");
+    codec_baseline_exe.linkSystemLibrary("jpeg");
+    codec_baseline_exe.linkSystemLibrary("png");
+    codec_baseline_exe.linkSystemLibrary("webp");
+    codec_baseline_exe.linkSystemLibrary("avif");
+    codec_baseline_exe.linkSystemLibrary("dssim");
+    codec_baseline_exe.linkLibC();
+
+    b.installArtifact(codec_baseline_exe);
+
+    const run_codec_baseline = b.addRunArtifact(codec_baseline_exe);
+    run_codec_baseline.step.dependOn(b.getInstallStep());
+
+    // Set environment variables
+    run_codec_baseline.setEnvironmentVariable("VIPS_DISC_THRESHOLD", "0");
+    run_codec_baseline.setEnvironmentVariable("VIPS_NOVECTOR", "1");
+
+    const codec_baseline_step = b.step("benchmark-codec-baseline", "Benchmark current libvips codec performance");
+    codec_baseline_step.dependOn(&run_codec_baseline.step);
+
     // Memory tests (Zig)
     const memory_tests = b.addTest(.{
         .name = "memory-tests",
@@ -188,6 +236,9 @@ pub fn build(b: *std.Build) void {
     // Link C libraries for memory tests
     memory_tests.linkSystemLibrary("vips");
     memory_tests.linkSystemLibrary("jpeg");
+    memory_tests.linkSystemLibrary("png");
+    memory_tests.linkSystemLibrary("webp");
+    memory_tests.linkSystemLibrary("avif");
     memory_tests.linkSystemLibrary("dssim");
     memory_tests.linkLibC();
 
