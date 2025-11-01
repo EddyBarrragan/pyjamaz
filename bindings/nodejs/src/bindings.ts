@@ -1,9 +1,8 @@
 /**
- * FFI bindings layer for Pyjamaz shared library
+ * FFI bindings layer for Pyjamaz shared library using koffi
  */
 
-import ffi from 'ffi-napi';
-import ref from 'ref-napi';
+import koffi from 'koffi';
 import path from 'path';
 import fs from 'fs';
 
@@ -17,39 +16,28 @@ export class PyjamazBindingError extends Error {
   }
 }
 
-// Define C types
-const CharPtr = ref.refType(ref.types.char);
-const VoidPtr = ref.refType(ref.types.void);
-
-// OptimizeOptions struct layout
-const OptimizeOptionsStruct = ffi.Struct({
-  input_bytes: CharPtr,
-  input_len: ref.types.size_t,
-  max_bytes: ref.types.uint32,
-  max_diff: ref.types.double,
-  metric: ref.types.uint8,
-  formats: CharPtr,
-  formats_len: ref.types.size_t,
-  concurrency: ref.types.uint32,
-  cache_enabled: ref.types.uint8,
-  cache_dir: CharPtr,
-  cache_dir_len: ref.types.size_t,
-  cache_max_size: ref.types.uint64,
+// Define C structures using koffi (matching Zig api.zig)
+const OptimizeOptions = koffi.struct('OptimizeOptions', {
+  input_bytes: koffi.pointer('uint8_t'),  // [*]const u8 in Zig
+  input_len: 'size_t',
+  max_bytes: 'uint32_t',
+  max_diff: 'double',
+  metric_type: koffi.pointer('char'),     // [*:0]const u8 (null-terminated string)
+  formats: koffi.pointer('char'),         // [*:0]const u8 (null-terminated string)
+  concurrency: 'uint8_t',
+  cache_enabled: 'uint8_t',
+  cache_dir: koffi.pointer('char'),       // [*:0]const u8 (null-terminated string)
+  cache_max_size: 'uint64_t',
 });
 
-// OptimizeResult struct layout
-const OptimizeResultStruct = ffi.Struct({
-  output_bytes: CharPtr,
-  output_len: ref.types.size_t,
-  format: ref.types.uint8,
-  diff_value: ref.types.double,
-  passed: ref.types.uint8,
-  error_message: CharPtr,
-  error_len: ref.types.size_t,
+const OptimizeResult = koffi.struct('OptimizeResult', {
+  output_bytes: koffi.pointer('uint8_t'),
+  output_len: 'size_t',
+  format: koffi.pointer('char'),        // null-terminated string
+  diff_value: 'double',
+  passed: 'uint8_t',
+  error_message: koffi.pointer('char'), // null-terminated string
 });
-
-const OptimizeOptionsPtr = ref.refType(OptimizeOptionsStruct);
-const OptimizeResultPtr = ref.refType(OptimizeResultStruct);
 
 /**
  * Find the Pyjamaz shared library
@@ -116,12 +104,13 @@ function findLibrary(): string {
  * Load the Pyjamaz shared library
  */
 const libPath = findLibrary();
-const lib = ffi.Library(libPath, {
-  pyjamaz_version: ['string', []],
-  pyjamaz_optimize: [OptimizeResultPtr, [OptimizeOptionsPtr]],
-  pyjamaz_free_result: ['void', [OptimizeResultPtr]],
-  pyjamaz_cleanup: ['void', []],
-});
+const lib = koffi.load(libPath);
+
+// Define FFI functions
+const pyjamaz_version = lib.func('pyjamaz_version', 'string', []);
+const pyjamaz_optimize = lib.func('pyjamaz_optimize', koffi.pointer(OptimizeResult), [koffi.pointer(OptimizeOptions)]);
+const pyjamaz_free_result = lib.func('pyjamaz_free_result', 'void', [koffi.pointer(OptimizeResult)]);
+const pyjamaz_cleanup = lib.func('pyjamaz_cleanup', 'void', []);
 
 /**
  * Cleanup function to be called on process exit
@@ -135,8 +124,8 @@ export function registerCleanup(): void {
   // Register cleanup handlers
   const cleanup = () => {
     try {
-      if (lib.pyjamaz_cleanup) {
-        lib.pyjamaz_cleanup();
+      if (pyjamaz_cleanup) {
+        pyjamaz_cleanup();
       }
     } catch (err) {
       console.error('Error during cleanup:', err);
@@ -158,45 +147,7 @@ export function registerCleanup(): void {
  * Get Pyjamaz library version
  */
 export function getVersion(): string {
-  return lib.pyjamaz_version();
-}
-
-/**
- * Internal: Map format string to enum value
- */
-function formatToEnum(format: string): number {
-  switch (format) {
-    case 'jpeg': return 0;
-    case 'png': return 1;
-    case 'webp': return 2;
-    case 'avif': return 3;
-    default: return 0;
-  }
-}
-
-/**
- * Internal: Map enum value to format string
- */
-function enumToFormat(value: number): string {
-  switch (value) {
-    case 0: return 'jpeg';
-    case 1: return 'png';
-    case 2: return 'webp';
-    case 3: return 'avif';
-    default: return 'jpeg';
-  }
-}
-
-/**
- * Internal: Map metric string to enum value
- */
-function metricToEnum(metric: string): number {
-  switch (metric) {
-    case 'dssim': return 0;
-    case 'ssimulacra2': return 1;
-    case 'none': return 2;
-    default: return 0;
-  }
+  return pyjamaz_version();
 }
 
 /**
@@ -217,46 +168,46 @@ export function optimize(
 ): { data: Buffer; format: string; diffValue: number; passed: boolean; errorMessage?: string } {
   registerCleanup();
 
-  // Prepare formats array
+  // Prepare formats string (comma-separated, null-terminated)
   const formats = options.formats || ['jpeg', 'png', 'webp', 'avif'];
-  const formatsBuffer = Buffer.from(formats.map(formatToEnum));
+  const formatsBytes = Buffer.from(formats.join(',') + '\0', 'utf-8');
 
-  // Prepare cache directory
-  const cacheDir = options.cacheDir || '';
-  const cacheDirBuffer = Buffer.from(cacheDir + '\0', 'utf8');
+  // Prepare metric string (null-terminated)
+  const metricBytes = Buffer.from((options.metric || 'dssim') + '\0', 'utf-8');
 
-  // Create options struct
-  const opts = new OptimizeOptionsStruct({
+  // Prepare cache directory (null-terminated)
+  const cacheDirBytes = Buffer.from((options.cacheDir || '') + '\0', 'utf-8');
+
+  // Create options object matching Zig API
+  const opts = {
     input_bytes: inputData,
     input_len: inputData.length,
     max_bytes: options.maxBytes || 0,
     max_diff: options.maxDiff || 0.0,
-    metric: metricToEnum(options.metric || 'dssim'),
-    formats: formatsBuffer,
-    formats_len: formatsBuffer.length,
+    metric_type: metricBytes,
+    formats: formatsBytes,
     concurrency: options.concurrency || 4,
     cache_enabled: options.cacheEnabled === false ? 0 : 1,
-    cache_dir: cacheDirBuffer,
-    cache_dir_len: cacheDirBuffer.length,
-    cache_max_size: options.cacheMaxSize || 1024 * 1024 * 1024,
-  });
+    cache_dir: cacheDirBytes,
+    cache_max_size: options.cacheMaxSize || 0, // 0 = default 1GB in Zig
+  };
 
-  // Call the FFI function
-  const resultPtr = lib.pyjamaz_optimize(opts.ref());
+  // Call the FFI function (koffi automatically passes struct by reference)
+  const resultPtr = pyjamaz_optimize(opts);
 
-  if (resultPtr.isNull()) {
+  if (!resultPtr) {
     throw new PyjamazBindingError('Optimization failed: returned null pointer');
   }
 
   try {
     // Read the result struct
-    const result = resultPtr.deref();
+    const result = koffi.decode(resultPtr, OptimizeResult);
 
     // Tiger Style: Validate C memory before reading
     let data: Buffer;
     if (result.output_len > 0) {
       // Validate output pointer
-      if (result.output_bytes.isNull()) {
+      if (!result.output_bytes) {
         throw new PyjamazBindingError('Invalid result: output_bytes is null but output_len > 0');
       }
 
@@ -266,42 +217,31 @@ export function optimize(
         throw new PyjamazBindingError(`Output size too large: ${result.output_len} bytes (max ${MAX_OUTPUT_SIZE})`);
       }
 
-      const outputData = ref.reinterpret(result.output_bytes, result.output_len, 0);
-      data = Buffer.from(outputData);
+      // Read output data
+      const OutputArray = koffi.array('uint8_t', result.output_len);
+      const outputArray = koffi.decode(result.output_bytes, OutputArray);
+      data = Buffer.from(outputArray);
     } else {
       data = Buffer.alloc(0);
     }
 
-    // Read error message if present
-    let errorMessage: string | undefined;
-    if (result.error_len > 0) {
-      if (result.error_message.isNull()) {
-        errorMessage = 'Unknown error (null message)';
-      } else {
-        // Sanity check error length (max 1KB)
-        const MAX_ERROR_LEN = 1024;
-        const actualLen = Math.min(result.error_len, MAX_ERROR_LEN);
-
-        try {
-          const errorData = ref.reinterpret(result.error_message, actualLen, 0);
-          errorMessage = errorData.toString('utf8');
-        } catch (err) {
-          errorMessage = 'Invalid UTF-8 in error message';
-        }
-      }
-    }
+    // Format and error message are already decoded by koffi (char pointers become strings)
+    const formatStr = result.format || 'jpeg';
+    const errorMessage = result.error_message && result.error_message.length > 0
+      ? result.error_message
+      : undefined;
 
     return {
       data,
-      format: enumToFormat(result.format),
+      format: formatStr,
       diffValue: result.diff_value,
       passed: result.passed !== 0,
       errorMessage,
     };
   } finally {
     // Free the result
-    lib.pyjamaz_free_result(resultPtr);
+    pyjamaz_free_result(resultPtr);
   }
 }
 
-export { OptimizeOptionsStruct, OptimizeResultStruct };
+export { OptimizeOptions, OptimizeResult };

@@ -65,13 +65,17 @@ pub const OptimizeResult = extern struct {
 
     /// Error message (null if no error, caller must free with pyjamaz_free)
     error_message: [*:0]u8,
-
-    /// Internal: tracks if error_message was heap-allocated (1) or static (0)
-    error_message_allocated: u8,
 };
 
 /// Global allocator for API layer (uses C allocator for FFI compatibility)
 var gpa = std.heap.c_allocator;
+
+/// Empty buffer for failed optimizations
+const empty_buffer: [0]u8 = .{};
+
+/// Static strings for failed optimizations
+const unknown_format: [:0]const u8 = "unknown";
+const no_candidate_error: [:0]const u8 = "No candidate met constraints";
 
 /// Detect image format from magic bytes
 fn detectFormat(bytes: []const u8) types.ImageFormat {
@@ -141,7 +145,6 @@ export fn pyjamaz_optimize(options: *const OptimizeOptions) ?*OptimizeResult {
         .diff_value = 0.0,
         .passed = 0,
         .error_message = @ptrCast(@constCast("".ptr)),
-        .error_message_allocated = 0, // Static empty string
     };
 
     // Parse metric type
@@ -237,25 +240,32 @@ export fn pyjamaz_optimize(options: *const OptimizeOptions) ?*OptimizeResult {
         if (options.concurrency > 0) options.concurrency else 4,
         if (cache_instance) |*c| c else null,
     ) catch |err| {
-        // Handle error
-        const error_msg = std.fmt.allocPrint(gpa, "Optimization failed: {s}\x00", .{@errorName(err)}) catch {
-            result.error_message = @ptrCast(@constCast("Unknown error\x00".ptr));
-            result.error_message_allocated = 0; // Static string
-            return result;
-        };
+        // Handle error - allocate all fields consistently
+        const error_msg = std.fmt.allocPrint(gpa, "Optimization failed: {s}\x00", .{@errorName(err)}) catch @panic("OOM");
         result.error_message = @ptrCast(error_msg.ptr);
-        result.error_message_allocated = 1; // Heap-allocated
+
+        const fmt_copy = std.fmt.allocPrint(gpa, "{s}\x00", .{unknown_format}) catch @panic("OOM");
+        result.format = @ptrCast(fmt_copy.ptr);
+
+        // Allocate placeholder buffer
+        const empty_output = gpa.alloc(u8, 1) catch @panic("OOM");
+        empty_output[0] = 0;
+        result.output_bytes = empty_output.ptr;
+        result.output_len = 0;
+
+        result.passed = 0;
+        result.diff_value = 0.0;
+
         return result;
     };
+    // Note: We DON'T call opt_result.deinit() here because we copy the data
+    // and the caller (FFI) is responsible for freeing the copied data.
+    // The opt_result owns temporary allocations that we'll manually free below.
 
     // Check if optimization succeeded
     if (opt_result.selected) |candidate| {
         // Clone output bytes (caller will free)
-        const output_copy = gpa.alloc(u8, candidate.encoded_bytes.len) catch {
-            result.error_message = @ptrCast(@constCast("Out of memory\x00".ptr));
-            result.error_message_allocated = 0; // Static string
-            return result;
-        };
+        const output_copy = gpa.alloc(u8, candidate.encoded_bytes.len) catch @panic("OOM");
         @memcpy(output_copy, candidate.encoded_bytes);
 
         result.output_bytes = output_copy.ptr;
@@ -263,49 +273,65 @@ export fn pyjamaz_optimize(options: *const OptimizeOptions) ?*OptimizeResult {
 
         // Clone format string with null terminator
         const format_str = @tagName(candidate.format);
-        const format_copy = std.fmt.allocPrint(gpa, "{s}\x00", .{format_str}) catch {
-            gpa.free(output_copy);
-            result.error_message = @ptrCast(@constCast("Out of memory\x00".ptr));
-            result.error_message_allocated = 0; // Static string
-            return result;
-        };
+        const format_copy = std.fmt.allocPrint(gpa, "{s}\x00", .{format_str}) catch @panic("OOM");
         result.format = @ptrCast(format_copy.ptr);
 
         result.diff_value = candidate.diff_score;
         result.passed = 1;
     } else {
-        // No candidate met constraints
+        // No candidate met constraints - allocate everything for FFI safety
         result.passed = 0;
-        result.error_message = @ptrCast(@constCast("No candidate met constraints\x00".ptr));
-        result.error_message_allocated = 0; // Static string
+
+        // Allocate a small buffer even for empty output (FFI safety)
+        const empty_output = gpa.alloc(u8, 1) catch @panic("OOM");
+        empty_output[0] = 0;
+        result.output_bytes = empty_output.ptr;
+        result.output_len = 0; // Length is 0 even though buffer exists
+
+        // Always allocate strings (safer for FFI)
+        const format_copy = std.fmt.allocPrint(gpa, "{s}\x00", .{unknown_format}) catch @panic("OOM");
+        result.format = @ptrCast(format_copy.ptr);
+
+        result.diff_value = 0.0;
+
+        const error_copy = std.fmt.allocPrint(gpa, "{s}\x00", .{no_candidate_error}) catch @panic("OOM");
+        result.error_message = @ptrCast(error_copy.ptr);
     }
 
     // Post-conditions: Verify result integrity before returning
     std.debug.assert(result.passed == 0 or result.output_len > 0); // If passed, must have output
     std.debug.assert(result.passed == 1 or result.error_message != @as([*:0]u8, @ptrCast(@constCast("".ptr)))); // If failed, must have error
 
+    // Clean up optimizer result (we've copied the data we need)
+    var opt_result_mut = opt_result;
+    opt_result_mut.deinit(gpa);
+
     return result;
 }
 
 /// Free memory allocated by pyjamaz_optimize
 export fn pyjamaz_free_result(result: *OptimizeResult) void {
-    if (result.output_len > 0) {
+    // Always free output_bytes (even if length is 0, buffer was allocated)
+    if (result.passed == 1 and result.output_len > 0) {
+        // Success case: free actual output
         const output_slice = result.output_bytes[0..result.output_len];
         gpa.free(output_slice);
+    } else {
+        // Failure case: free the 1-byte placeholder buffer
+        const placeholder = result.output_bytes[0..1];
+        gpa.free(placeholder);
     }
 
-    // Free format string
+    // Always free format string (always allocated)
     const format_slice = std.mem.span(result.format);
     if (format_slice.len > 0) {
         gpa.free(format_slice);
     }
 
-    // Free error message if it was heap-allocated (tracked by flag)
-    if (result.error_message_allocated == 1) {
-        const error_slice = std.mem.span(result.error_message);
-        if (error_slice.len > 0) {
-            gpa.free(error_slice);
-        }
+    // Always free error message (always allocated)
+    const error_slice = std.mem.span(result.error_message);
+    if (error_slice.len > 0) {
+        gpa.free(error_slice);
     }
 
     gpa.destroy(result);

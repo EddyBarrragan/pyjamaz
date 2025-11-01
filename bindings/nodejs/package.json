@@ -1,6 +1,6 @@
 {
   "name": "pyjamaz",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Node.js bindings for Pyjamaz - high-performance image optimizer",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -41,9 +41,8 @@
     "node": ">=14.0.0"
   },
   "dependencies": {
-    "ffi-napi": "^4.0.3",
-    "ref-napi": "^3.0.3",
-    "ref-struct-di": "^1.1.1"
+    "koffi": "^2.9.0",
+    "pyjamaz": "file:pyjamaz-1.0.0.tgz"
   },
   "devDependencies": {
     "@types/jest": "^29.5.11",

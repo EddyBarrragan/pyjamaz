@@ -31,10 +31,10 @@ cd bindings/python
 uv pip install -e .
 ```
 
-### From PyPI (Coming Soon)
+### From PyPI
 
 ```bash
-uv pip install pyjamaz
+uv pip install pyjamaz-optimizer
 ```
 
 ## Quick Start

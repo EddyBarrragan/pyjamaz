@@ -78,7 +78,7 @@ pub const OptimizationResult = struct {
     selected: ?EncodedCandidate, // null if no candidate passed constraints
     all_candidates: []EncodedCandidate, // All attempted candidates
     timings: OptimizationTimings,
-    warnings: [][]const u8, // Owned warning strings
+    warnings: [][]u8, // Owned warning strings (mutable for proper cleanup)
     success: bool,
 
     pub fn deinit(self: *OptimizationResult, allocator: Allocator) void {
@@ -252,16 +252,19 @@ pub fn optimizeImageFromBuffer(
 
                 const total_time = @as(u64, @intCast(std.time.nanoTimestamp() - start_time));
 
-                // Return immediately with cached result
+                // Return immediately with cached result (allocate empty slices for consistency)
+                const empty_candidates = try allocator.alloc(EncodedCandidate, 0);
+                const empty_warnings = try allocator.alloc([]u8, 0);
+
                 return .{
                     .selected = selected,
-                    .all_candidates = &[_]EncodedCandidate{}, // Empty for cached results
+                    .all_candidates = empty_candidates,
                     .timings = .{
                         .decode_ns = 0,
                         .encode_ns = 0,
                         .total_ns = total_time,
                     },
-                    .warnings = &[_][]const u8{},
+                    .warnings = empty_warnings,
                     .success = cached.metadata.passed_constraints,
                 };
             }
@@ -359,7 +362,7 @@ pub fn optimizeImageFromBuffer(
             .encode_ns = encode_time,
             .total_ns = total_time,
         },
-        .warnings = @ptrCast(try warnings.toOwnedSlice(allocator)),
+        .warnings = try warnings.toOwnedSlice(allocator),
         .success = selected != null,
     };
 }
@@ -410,15 +413,19 @@ fn tryCacheHit(
 
             const total_time = @as(u64, @intCast(std.time.nanoTimestamp() - start_time));
 
+            // Allocate empty slices for consistency with non-cached path
+            const empty_candidates = allocator.alloc(EncodedCandidate, 0) catch return null;
+            const empty_warnings = allocator.alloc([]u8, 0) catch return null;
+
             return OptimizationResult{
                 .selected = selected,
-                .all_candidates = &[_]EncodedCandidate{},
+                .all_candidates = empty_candidates,
                 .timings = .{
                     .decode_ns = 0,
                     .encode_ns = 0,
                     .total_ns = total_time,
                 },
-                .warnings = &[_][]const u8{},
+                .warnings = empty_warnings,
                 .success = cached.metadata.passed_constraints,
             };
         }
@@ -567,7 +574,7 @@ pub fn optimizeImage(
             .encode_ns = encode_time,
             .total_ns = total_time,
         },
-        .warnings = @ptrCast(try warnings.toOwnedSlice(allocator)),
+        .warnings = try warnings.toOwnedSlice(allocator),
         .success = selected != null,
     };
 }

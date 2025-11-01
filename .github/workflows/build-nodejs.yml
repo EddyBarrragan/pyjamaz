@@ -3,13 +3,13 @@ name: Build Node.js Packages
 on:
   push:
     tags:
-      - 'v*'  # Trigger on version tags (v1.0.0, v1.1.0, etc.)
-  workflow_dispatch:  # Allow manual triggering
+      - "v*" # Trigger on version tags (v1.0.0, v1.1.0, etc.)
+  workflow_dispatch: # Allow manual triggering
     inputs:
       skip_publish:
-        description: 'Skip publishing to npm'
+        description: "Skip publishing to npm"
         required: false
-        default: 'false'
+        default: "false"
 
 jobs:
   build_packages:
@@ -26,7 +26,7 @@ jobs:
             arch: arm64
             platform: darwin
           # Linux builds
-          - ubuntu-22.04
+          - os: ubuntu-22.04
             arch: x64
             platform: linux
 
@@ -43,8 +43,8 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
 
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
@@ -116,8 +116,8 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
 
       - name: Download all packages
         uses: actions/download-artifact@v3
@@ -156,7 +156,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
 
       - name: Download package
         uses: actions/download-artifact@v3

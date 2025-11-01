@@ -7,12 +7,15 @@
 //!   0 - All tests passed
 //!   1 - Some tests failed
 //!
-//! Usage: zig build conformance
+//! Usage:
+//!   zig build conformance              # Fast mode (no DSSIM, ~3s)
+//!   zig build conformance -Denable-dssim  # With quality checks (~15-20s)
 
 const std = @import("std");
 const fs = std.fs;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
+const build_options = @import("build_options");
 
 // Import Pyjamaz modules from root
 const root = @import("root");
@@ -21,6 +24,7 @@ const output = root.output;
 const vips = root.vips;
 const types = root.types;
 const ImageFormat = types.ImageFormat;
+const MetricType = types.MetricType;
 
 // Test result structure
 const TestResult = struct {
@@ -71,7 +75,13 @@ pub fn main() !void {
     var vips_ctx = try vips.VipsContext.init();
     defer vips_ctx.deinit();
 
-    std.debug.print("\n=== Pyjamaz Conformance Tests ===\n\n", .{});
+    std.debug.print("\n=== Pyjamaz Conformance Tests ===\n", .{});
+    if (build_options.enable_dssim) {
+        std.debug.print("Mode: With DSSIM quality checks (slower, more thorough)\n\n", .{});
+    } else {
+        std.debug.print("Mode: Fast (no quality checks, size only)\n", .{});
+        std.debug.print("Tip: Use -Denable-dssim for perceptual quality verification\n\n", .{});
+    }
 
     // Test directories with suite names
     const TestSuite = struct {
@@ -123,13 +133,35 @@ pub fn main() !void {
         while (try walker.next()) |entry| {
             if (entry.kind != .file) continue;
 
-            // Filter for image files
+            // Check if it's a TIFF file (not supported, web formats only)
+            const is_tiff = std.mem.endsWith(u8, entry.name, ".tif") or
+                std.mem.endsWith(u8, entry.name, ".tiff");
+            if (is_tiff) {
+                total_tests += 1;
+                stats.total += 1;
+                skipped += 1;
+                stats.skipped += 1;
+
+                const skip_result = TestResult{
+                    .name = entry.name,
+                    .passed = false,
+                    .skipped = true,
+                    .input_bytes = 0,
+                    .output_bytes = null,
+                    .ratio = null,
+                    .reason = try allocator.dupe(u8, "TIFF format not supported (web formats only)"),
+                    .category = .skipped_invalid,
+                };
+                try all_results.append(allocator, skip_result);
+                std.debug.print("  ⊘ SKIP: {s} (TIFF not supported)\n", .{entry.name});
+                continue;
+            }
+
+            // Filter for supported image files (web formats only)
             const is_image = std.mem.endsWith(u8, entry.name, ".png") or
                 std.mem.endsWith(u8, entry.name, ".jpg") or
                 std.mem.endsWith(u8, entry.name, ".jpeg") or
-                std.mem.endsWith(u8, entry.name, ".webp") or
-                std.mem.endsWith(u8, entry.name, ".tif") or
-                std.mem.endsWith(u8, entry.name, ".tiff");
+                std.mem.endsWith(u8, entry.name, ".webp");
 
             if (!is_image) continue;
 
@@ -251,7 +283,7 @@ pub fn main() !void {
         const pass_rate = (stats.passed * 100) / stats.total;
         const avg_compression = if (stats.passed > 0)
             (@as(f64, @floatFromInt(stats.total_output_bytes)) /
-            @as(f64, @floatFromInt(stats.total_input_bytes))) * 100.0
+                @as(f64, @floatFromInt(stats.total_input_bytes))) * 100.0
         else
             0.0;
 
@@ -424,6 +456,12 @@ fn runOptimizationTest(allocator: Allocator, input_path: []const u8) !TestResult
     // WebP, JPEG, PNG supported - AVIF excluded due to libvips compatibility issues
     job.formats = &[_]ImageFormat{ .webp, .jpeg, .png };
     job.max_bytes = null; // No size constraint for conformance
+
+    // Enable DSSIM if build option is set
+    if (build_options.enable_dssim) {
+        job.metric_type = .dssim;
+        job.max_diff = 0.01; // Allow up to 1% perceptual difference (reasonable threshold)
+    }
 
     // Run optimization
     var result = optimizer.optimizeImage(allocator, job) catch |err| {

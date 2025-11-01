@@ -98,7 +98,7 @@ pyjamaz-1.0.0-cp311-cp311-macosx_11_0_arm64.whl
 │       └── libavif.16.dylib (bundled dynamic library)
 ```
 
-**Installation**: `uv pip install pyjamaz` → works immediately, no brew needed
+**Installation**: `uv pip install pyjamaz-optimizer` → works immediately, no brew needed
 
 ### Phase 3: Node.js Package Distribution
 
@@ -215,7 +215,7 @@ otool -L zig-out/lib/libpyjamaz.dylib
 - Tests pass: 126/127 (99.2%)
 
 🎯 **Target (Phase 2-3)**:
-- Python wheel: `uv pip install pyjamaz` works immediately
+- Python wheel: `uv pip install pyjamaz-optimizer` works immediately
 - Node.js package: `npm install pyjamaz` works immediately
 - No `brew install` prerequisites
 - Platform-specific packages (macOS Intel/ARM, Linux x64)

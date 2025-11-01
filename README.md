@@ -1,4 +1,4 @@
-# Pyjamaz - High-Performance Image Optimizer CLI
+# Pyjamaz - High-Performance Image Optimizer for Nodejs, Python, CLI
 
 **Blazing-fast CLI tool for optimizing images with perceptual quality guarantees. Built with Zig using Tiger Style methodology.**
 
@@ -13,7 +13,7 @@
 
 - **🚀 Blazing Fast**: 50-100ms per image with parallel encoding, 15-20x faster with caching
 - **💾 Intelligent Caching**: Content-addressed cache for instant repeated optimizations
-- **🧪 Battle-Tested**: 73/73 unit tests, 197/211 conformance tests, **0 memory leaks**
+- **🧪 Battle-Tested**: 73/73 unit tests, 196/211 conformance tests (15 skipped), **0 memory leaks**
 - **📊 Smart**: Automatic format selection (JPEG, PNG, WebP, AVIF) with perceptual quality metrics
 - **🔒 Safe**: Never makes files larger - original file always included as baseline
 - **⚡ Efficient**: Memory-optimized processing (no temp files)
@@ -27,11 +27,11 @@
 
 | Metric               | Result                                               |
 | -------------------- | ---------------------------------------------------- |
-| **Test Coverage**    | 73/73 unit tests (100%), 197/211 conformance (93%)   |
+| **Test Coverage**    | 73/73 unit tests (100%), 196/211 conformance (93%)   |
 | **Memory Safety**    | 0 leaks detected (verified with testing.allocator)   |
 | **Performance**      | 50-100ms per image (5x better than 500ms target)     |
 | **Parallel Speedup** | 1.2-1.4x faster with 4 cores                         |
-| **Compression**      | 94.5% average size reduction                         |
+| **Compression**      | 87.4% average size reduction (12.6% of original)     |
 | **Regressions**      | 0% - original file baseline prevents size increases  |
 | **Formats**          | 4 (JPEG, PNG, WebP, AVIF)                            |
 | **Metrics**          | 2 perceptual (DSSIM, SSIMULACRA2) + size constraints |
@@ -43,11 +43,13 @@
 ### Installation
 
 **From Homebrew** (coming soon):
+
 ```bash
 brew install pyjamaz
 ```
 
 **From Source**:
+
 ```bash
 # Install dependencies (macOS)
 brew install vips jpeg-turbo dssim
@@ -103,6 +105,7 @@ if result.passed:
 ```
 
 **Features**:
+
 - Automatic memory management (no manual cleanup)
 - Full caching support (15-20x speedup)
 - Quality constraints with perceptual metrics
@@ -110,8 +113,12 @@ if result.passed:
 - Batch processing support
 
 **Installation**:
+
 ```bash
-# Install Python bindings
+# Install from PyPI
+uv pip install pyjamaz-optimizer
+
+# Or install from source
 cd bindings/python
 uv pip install -e .
 
@@ -127,20 +134,21 @@ uv run python examples/batch.py
 Pyjamaz can also be used from Node.js with full TypeScript support:
 
 ```typescript
-import * as pyjamaz from '@pyjamaz/nodejs';
+import * as pyjamaz from "@pyjamaz/nodejs";
 
 // Optimize with size constraint
-const result = await pyjamaz.optimizeImage('input.jpg', {
+const result = await pyjamaz.optimizeImage("input.jpg", {
   maxBytes: 100_000,
 });
 
 if (result.passed) {
-  await result.save('output.jpg');
+  await result.save("output.jpg");
   console.log(`Optimized to ${result.size} bytes`);
 }
 ```
 
 **Features**:
+
 - TypeScript-first design with full type safety
 - Both sync and async APIs
 - Automatic memory management
@@ -148,6 +156,7 @@ if (result.passed) {
 - Express/Fastify integration examples
 
 **Installation**:
+
 ```bash
 # Install Node.js bindings
 cd bindings/nodejs
@@ -168,6 +177,7 @@ npx ts-node examples/basic.ts
 ### Language Bindings
 
 - **Python**: Production-ready bindings with automatic memory management
+
   - Pythonic API with type hints
   - Full caching support
   - Zero external dependencies (uses stdlib ctypes)
@@ -188,6 +198,8 @@ npx ts-node examples/basic.ts
 - **PNG**: Via libpng (lossless)
 - **WebP**: Modern format with excellent compression (80-90% reduction)
 - **AVIF**: Next-gen format (experimental support via libvips)
+
+**Note**: TIFF format is not supported. Pyjamaz focuses exclusively on web image formats. To optimize TIFF files, convert them to PNG first using ImageMagick or similar tools.
 
 ### Perceptual Quality Metrics
 
@@ -212,10 +224,12 @@ npx ts-node examples/basic.ts
 - LRU eviction policy with configurable size limit (default 1GB)
 
 **Cache location**:
+
 - Linux/macOS: `~/.cache/pyjamaz/` or `$XDG_CACHE_HOME/pyjamaz/`
 - Windows: `%LOCALAPPDATA%\pyjamaz\cache\`
 
 **Cache management**:
+
 ```bash
 # View cache size
 du -sh ~/.cache/pyjamaz
@@ -257,11 +271,13 @@ rm -rf ~/.cache/pyjamaz
 
 **Conformance Test Results** (211 images):
 
-| Test Suite   | Pass Rate         | Avg Compression     | Best Result             |
-| ------------ | ----------------- | ------------------- | ----------------------- |
-| PNGSuite     | 161/161 (100%)    | 82.8% reduction     | 4180→1057 bytes (74.7%) |
-| WebP Gallery | 5/5 (100%)        | No regression       | Already optimal         |
-| **Overall**  | **197/211 (93%)** | **94.5% reduction** | **0% regressions**      |
+| Test Suite   | Pass Rate         | Avg Compression      | Notes                          |
+| ------------ | ----------------- | -------------------- | ------------------------------ |
+| Kodak        | 24/24 (100%)      | 9.3% of original     | Photographic images            |
+| PNGSuite     | 162/176 (92%)     | High reduction       | 14 intentionally corrupt files |
+| WebP Gallery | 5/5 (100%)        | No regression        | Already optimal                |
+| TestImages   | 2/3 (67%)         | 15.5% of original    | 1 TIFF skipped (not supported) |
+| **Overall**  | **196/211 (93%)** | **12.6% of original (87.4% reduction)** | **15 correctly skipped**       |
 
 ### Memory Safety
 
@@ -352,22 +368,25 @@ pyjamaz/
 
 ### Test Coverage
 
-| Category              | Count | Pass Rate     | Status         |
-| --------------------- | ----- | ------------- | -------------- |
-| **Unit Tests**        | 73    | 100% (73/73)  | ✅ All passing |
-| **Conformance Tests** | 211   | 93% (197/211) | ✅ Excellent   |
-| **Memory Leak Tests** | All   | 0 leaks       | ✅ Clean       |
-| **Integration Tests** | 8     | 100%          | ✅ All passing |
+| Category              | Count | Pass Rate      | Status         |
+| --------------------- | ----- | -------------- | -------------- |
+| **Unit Tests**        | 73    | 100% (73/73)   | ✅ All passing |
+| **Conformance Tests** | 211   | 93% (196/211)  | ✅ Excellent   |
+| **Memory Leak Tests** | All   | 0 leaks        | ✅ Clean       |
+| **Integration Tests** | 8     | 100% (8/8)     | ✅ All passing |
 
-**Skipped Tests**: 40 VIPS tests (intentionally skipped due to libvips thread-safety in parallel test runner - not bugs, tests work in isolation)
+**Skipped Tests**:
+- 14 PNGSuite files (intentionally malformed test files: xc*, xd*, xs*, xh*, xlf*)
+- 1 TIFF file (not supported - web formats only)
 
 ### Test Suites
 
-- **PNGSuite**: 161 PNG edge cases (transparency, interlacing, color depths)
-- **Kodak**: 24 photographic test images
-- **WebP Gallery**: 5 WebP images
-- **TestImages**: 6 additional test cases
-- **Custom**: Unit tests for all modules
+- **PNGSuite**: 176 PNG files (162 valid + 14 intentionally corrupt for robustness testing)
+- **Kodak**: 24 photographic test images (industry standard)
+- **WebP**: 5 WebP gallery images
+- **Samples**: 3 reference images
+- **TestImages**: 3 files (2 PNG + 1 TIFF skipped)
+- **Total**: 211 conformance test images (196 passing, 15 correctly skipped)
 
 ### Run Tests
 
@@ -376,7 +395,8 @@ pyjamaz/
 zig build test
 
 # Conformance tests (211 images)
-zig build conformance
+zig build conformance                    # Fast mode (~3s, size checks only)
+zig build conformance -Denable-dssim     # With DSSIM quality checks (~15-20s)
 
 # Integration tests
 zig build test-integration
@@ -392,11 +412,42 @@ zig build benchmark
 zig build test -Dtest-filter=optimizer
 ```
 
+#### Conformance Test Modes
+
+**Fast Mode** (default, ~3s):
+```bash
+zig build conformance
+```
+- Verifies: Format support, compression ratio, no crashes
+- DSSIM values: 0.0000 (not computed for speed)
+- Use for: Quick iteration, CI/CD, format verification
+
+**DSSIM Mode** (thorough, ~15-20s):
+```bash
+zig build conformance -Denable-dssim
+```
+- Verifies: All of the above + perceptual quality with DSSIM metric
+- DSSIM values: Real values (e.g., 0.0020, 0.0005, 0.0003)
+- Quality threshold: 0.01 (1% max perceptual difference)
+- Use for: Release testing, quality regression detection, codec validation
+
+**Why 15 Tests are Skipped**:
+- **14 PNGSuite files**: Intentionally malformed test files designed to test decoder robustness
+  - `xc*`: Invalid color type
+  - `xd*`: Invalid bit depth
+  - `xs*`: Invalid PNG signature
+  - `xh*`: Invalid header
+  - `xlf*`: Invalid chunk length
+- **1 TIFF file**: Not supported (pyjamaz focuses on web image formats only)
+
+These files are **correctly skipped** - attempting to optimize corrupt/unsupported files would be an error.
+
 #### Manual Memory Tests (Node.js & Python)
 
 The Node.js and Python memory tests are available but require manual setup:
 
 **Node.js Memory Tests:**
+
 ```bash
 # Prerequisites
 zig build                          # Build library first
@@ -411,6 +462,7 @@ node tests/memory/buffer_memory_test.js
 ```
 
 **Python Memory Tests:**
+
 ```bash
 # Prerequisites
 zig build                          # Build library first
@@ -425,91 +477,20 @@ uv run python tests/memory/buffer_memory_test.py
 ```
 
 **Expected Results:**
+
 - All tests should report "TEST PASSED"
 - Zero memory leaks detected
 - Colored output showing progress
 
 **Note:** If tests fail with module not found errors, set the library path:
+
 ```bash
 export PYJAMAZ_LIB_PATH=/path/to/pyjamaz/zig-out/lib/libpyjamaz.dylib
 ```
 
 See [docs/MEMORY_TESTS.md](docs/MEMORY_TESTS.md) for detailed troubleshooting.
 
-```
-
----
-
-## 📦 Installation
-
-### Prerequisites
-
-- **Zig**: 0.15.0+ ([download](https://ziglang.org/download/))
-- **libvips**: 8.12+ ([installation](https://www.libvips.org/install.html))
-- **libdssim**: For DSSIM metric
-- **Codecs** (via libvips dependencies):
-  - libjpeg-turbo (JPEG)
-  - libpng (PNG)
-  - libwebp (WebP)
-
-### macOS
-
-```bash
-# Install dependencies
-brew install vips jpeg-turbo dssim
-
-# Build Pyjamaz
-git clone https://github.com/yourusername/pyjamaz.git
-cd pyjamaz
-zig build
-
-# Run tests
-zig build test
-
-# Install CLI (optional)
-cp zig-out/bin/pyjamaz /usr/local/bin/
-
-# Install Python bindings (optional)
-cd bindings/python
-uv pip install -e .
-uv run python -c "import pyjamaz; print(f'Pyjamaz {pyjamaz.get_version()} installed')"
-```
-
-### Linux (Ubuntu/Debian)
-
-```bash
-# Install dependencies
-sudo apt-get install libvips-dev libjpeg-turbo8-dev libpng-dev libwebp-dev
-
-# Install libdssim (build from source if not in package manager)
-git clone https://github.com/kornelski/dssim.git
-cd dssim && cargo build --release
-sudo cp target/release/libdssim.so /usr/local/lib/
-
-# Build Pyjamaz
-git clone https://github.com/yourusername/pyjamaz.git
-cd pyjamaz
-zig build
-zig build test
-
-# Install Python bindings (optional)
-cd bindings/python
-uv pip install -e .
-uv run python -c "import pyjamaz; print(f'Pyjamaz {pyjamaz.get_version()} installed')"
-```
-
-### Windows
-
-```bash
-# Install Zig from ziglang.org
-# Install libvips from libvips.github.io/libvips/install.html
-# Install libdssim from GitHub releases
-
-# Build
-zig build
-zig build test
-```
-
+````
 ---
 
 ## 📚 Documentation
@@ -524,6 +505,7 @@ zig build test
 ### API Documentation
 
 - **[Python API Reference](docs/PYTHON_API.md)** - Complete Python bindings documentation
+
   - Installation and setup
   - API reference with all parameters
   - Usage examples (basic, batch, Flask, FastAPI)
@@ -647,6 +629,7 @@ See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for detailed guidelines.
 See [docs/TODO.md](docs/TODO.md) for the complete development roadmap.
 
 **Current Focus** (v1.0.0):
+
 - ✅ Core engine stable (73/73 tests passing)
 - ✅ Caching layer (15-20x speedup)
 - ✅ Python bindings complete (automatic memory management, comprehensive tests)
@@ -656,6 +639,7 @@ See [docs/TODO.md](docs/TODO.md) for the complete development roadmap.
 - ⏳ Production polish (fuzzing, security audit)
 
 **Future** (v1.1.0+):
+
 - Watch mode (re-optimize on file changes)
 - JSON output mode (machine-readable)
 - Progress bars for batch operations
@@ -697,3 +681,4 @@ If Pyjamaz helps you, please consider giving it a star! ⭐
 **Status**: Pre-1.0 (core stable, bindings ready, optimizing performance)
 
 🚀 **Happy optimizing!**
+````

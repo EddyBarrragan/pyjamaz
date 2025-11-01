@@ -28,7 +28,7 @@
 - Perceptual quality guarantees (DSSIM, SSIMULACRA2)
 - Size budget enforcement
 - Zero configuration needed (smart defaults)
-- Standalone installation: `uv pip install pyjamaz` or `npm install pyjamaz`
+- Standalone installation: `uv pip install pyjamaz-optimizer` or `npm install pyjamaz`
 
 ---
 
@@ -102,12 +102,12 @@
 
 **Performance Achieved:**
 
-| Codec | Status | Performance |
-| ----- | ------ | ----------- |
+| Codec | Status     | Performance                                      |
+| ----- | ---------- | ------------------------------------------------ |
 | JPEG  | ✅ Working | libjpeg-turbo decode/encode, RGBA→RGB conversion |
-| PNG   | ✅ Working | libpng decode/encode, full color type support |
-| WebP  | ✅ Working | 0.45ms encode, lossless/lossy support |
-| AVIF  | ✅ Working | Quality 0-100, speed presets -1 to 10 |
+| PNG   | ✅ Working | libpng decode/encode, full color type support    |
+| WebP  | ✅ Working | 0.45ms encode, lossless/lossy support            |
+| AVIF  | ✅ Working | Quality 0-100, speed presets -1 to 10            |
 
 **Key Accomplishment**: Enables standalone distribution via static linking (no runtime dependencies)
 
@@ -115,12 +115,13 @@
 
 ### Milestone 4: Standalone Distribution (Python/Node.js)
 
-**Goal**: `uv pip install pyjamaz` and `npm install pyjamaz` work immediately (no brew prerequisites)
+**Goal**: `uv pip install pyjamaz-optimizer` and `npm install pyjamaz` work immediately (no brew prerequisites)
 **Status**: 🟡 IN PROGRESS (Infrastructure complete, docs pending)
 **Priority**: 🔴 HIGH (blocks 1.0 release)
 **Progress**: Phase 1 ✅ Phase 2 ✅ Phase 3 ✅ Phase 4 ✅ Phase 5 🟡 (30%) - **90% complete overall**
 
 **Context**: With Milestone 3 complete (native codecs), we can now:
+
 - Statically link all codec dependencies
 - Bundle everything into platform-specific packages
 - Eliminate manual `brew install` step for users
@@ -128,12 +129,12 @@
 
 **Current State (v0.9.x → v1.0.0):**
 
-| Aspect | Before (v0.9) | After (v1.0) | Status |
-| ------ | ------------- | ------------ | ------ |
-| Python bindings | Requires brew | `uv pip install pyjamaz` | ✅ Ready (needs testing) |
-| Node.js bindings | Requires brew | `npm install pyjamaz` | 🟡 In Progress |
-| Installation | Manual (~15 deps) | Automatic (0 deps) | ✅ Python done |
-| Linking | Dynamic | Bundled (libavif) | ✅ Complete |
+| Aspect           | Before (v0.9)     | After (v1.0)                       | Status                   |
+| ---------------- | ----------------- | ---------------------------------- | ------------------------ |
+| Python bindings  | Requires brew     | `uv pip install pyjamaz-optimizer` | ✅ Ready (needs testing) |
+| Node.js bindings | Requires brew     | `npm install pyjamaz`              | 🟡 In Progress           |
+| Installation     | Manual (~15 deps) | Automatic (0 deps)                 | ✅ Python done           |
+| Linking          | Dynamic           | Bundled (libavif)                  | ✅ Complete              |
 
 **Detailed Progress**: See `docs/MILESTONE4_PROGRESS.md` for full status report
 
@@ -152,19 +153,23 @@
 **Actual Outcome**: Partial static linking achieved (4/5 codecs static)
 
 **Dependencies Reduced**:
+
 - **Before**: 12+ libraries (libvips + glib + codecs)
 - **After**: 1 library (libavif.dylib) + 2 system deps (Accelerate, libSystem)
 
 **Statically Linked**:
+
 - ✅ libjpeg-turbo (500KB)
 - ✅ libpng + zlib (300KB)
 - ✅ libwebp + libsharpyuv (450KB)
 - ✅ libdssim (100KB)
 
 **Dynamically Linked** (will bundle in Phase 2):
+
 - 🟡 libavif.dylib (2MB) - complex to build statically, will bundle in wheel/package
 
 **Success Criteria: EXCEEDED**
+
 - ✅ Self-contained library (only 1 external dep to bundle)
 - ✅ No Homebrew dependencies for users (after bundling libavif)
 - ✅ Binary size: 3.1MB (well under 100MB limit)
@@ -193,6 +198,7 @@
 - [ ] Publish to PyPI (or test.pypi.org first) - **requires human** (see docs/RELEASE.md)
 
 **Success Criteria: MOSTLY MET**
+
 - ✅ `setup.py` with custom `BuildPyWithNativeLibs` class
 - ✅ cibuildwheel configuration for macOS + Linux
 - ✅ Wheel bundling (libpyjamaz.dylib + libavif.16.dylib)
@@ -205,13 +211,13 @@
 **Actual Effort**: 1 day (faster than estimated!)
 
 **Deliverables**:
+
 - `bindings/python/setup.py` - Custom build with bundling
 - `bindings/python/pyproject.toml` - cibuildwheel config
 - `bindings/python/MANIFEST.in` - Package includes
 - `bindings/python/pyjamaz/__init__.py` - Updated library finder
 - `.github/workflows/build-wheels.yml` - CI/CD automation
 - `scripts/build-python-wheel.sh` - Local build script
-- `docs/MILESTONE4_PROGRESS.md` - Detailed progress report
 
 #### Phase 3: Node.js Distribution ✅ **COMPLETE** (2025-11-01)
 
@@ -227,6 +233,7 @@
 - [ ] Publish to npm - **requires human** (see docs/RELEASE.md)
 
 **Success Criteria: MOSTLY MET**
+
 - ✅ Build automation complete (3 platforms)
 - ✅ Native libraries bundled automatically
 - ✅ Bindings updated to find bundled libs first
@@ -238,6 +245,7 @@
 **Actual Effort**: 1 day (faster than estimated!)
 
 **Deliverables**:
+
 - `bindings/nodejs/package.json` - Updated with bundling
 - `bindings/nodejs/install.js` - Post-install verification
 - `bindings/nodejs/src/bindings.ts` - Updated library finder
@@ -257,6 +265,7 @@
 - [x] Release automation (tag → build → publish with approval)
 
 **Success Criteria: FULLY MET**
+
 - ✅ Git tag triggers multi-platform builds
 - ✅ Python wheels built automatically (3 platforms)
 - ✅ Node.js packages built automatically (3 platforms)
@@ -266,6 +275,7 @@
 **Actual Effort**: <1 day (highly automated!)
 
 **Deliverables**:
+
 - `.github/workflows/build-wheels.yml` - Python automation
 - `.github/workflows/build-nodejs.yml` - Node.js automation
 - Both workflows test installation after build
@@ -277,7 +287,7 @@
 
 - [ ] Update main README.md
   - [ ] Remove `brew install` prerequisites
-  - [ ] Update to `uv pip install pyjamaz` (single step)
+  - [ ] Update to `uv pip install pyjamaz-optimizer` (single step)
   - [ ] Update to `npm install pyjamaz` (single step)
 - [ ] Update bindings/python/README.md
   - [ ] Remove system dependency section
@@ -289,6 +299,7 @@
 - [ ] Update CHANGELOG.md with breaking changes
 
 **Success Criteria:**
+
 - All installation docs updated
 - Migration path documented
 - Platform support clearly stated
@@ -299,7 +310,7 @@
 
 **Milestone 4 Success Criteria:**
 
-- ✅ `uv pip install pyjamaz` works immediately (macOS + Linux)
+- ✅ `uv pip install pyjamaz-optimizer` works immediately (macOS + Linux)
 - ✅ `npm install pyjamaz` works immediately (macOS + Linux)
 - ✅ No `brew install` prerequisites
 - ✅ Platform-specific wheels/packages (<100MB each)
@@ -362,20 +373,22 @@
 
 ## Timeline Estimate
 
-| Milestone                       | Estimated  | Actual        | Status         |
-| ------------------------------- | ---------- | ------------- | -------------- |
-| 1. Python Bindings              | 7-10 days  | <1 hour       | ✅ Complete    |
-| 2. Node.js Bindings             | 7-10 days  | <1 hour       | ✅ Complete    |
-| 3. Native Codecs (libvips)      | 5-6 weeks  | ~2 weeks      | ✅ Complete    |
-| 4. Standalone Distribution      | 11-15 days | ~2 days (60%) | 🟡 In Progress |
-| 5. Production Polish            | 5-7 days   | TBD           | ⏳ Pending     |
+| Milestone                  | Estimated  | Actual        | Status         |
+| -------------------------- | ---------- | ------------- | -------------- |
+| 1. Python Bindings         | 7-10 days  | <1 hour       | ✅ Complete    |
+| 2. Node.js Bindings        | 7-10 days  | <1 hour       | ✅ Complete    |
+| 3. Native Codecs (libvips) | 5-6 weeks  | ~2 weeks      | ✅ Complete    |
+| 4. Standalone Distribution | 11-15 days | ~2 days (60%) | 🟡 In Progress |
+| 5. Production Polish       | 5-7 days   | TBD           | ⏳ Pending     |
 
 **Progress Summary**:
+
 - ✅ Milestones 1-3 Complete (bindings + native codecs)
 - 🟡 Milestone 4 In Progress (Python done, Node.js pending)
 - 📊 Overall: ~70% complete toward 1.0
 
 **Milestone 4 Breakdown**:
+
 - ✅ Phase 1: Static linking (100%)
 - ✅ Phase 2: Python distribution - automated (90%, needs human testing)
 - 🟡 Phase 3: Node.js distribution (30%, design complete)
@@ -408,7 +421,7 @@
 
 ### Distribution
 
-- 🎯 `uv pip install pyjamaz` works immediately (no brew)
+- 🎯 `uv pip install pyjamaz-optimizer` works immediately (no brew)
 - 🎯 `npm install pyjamaz` works immediately (no brew)
 - 🎯 Platform-specific wheels/packages (macOS, Linux)
 - 🎯 Static linking, no runtime dependencies
@@ -502,7 +515,7 @@
 - ✅ Native C codecs complete (libjpeg-turbo, libpng, libwebp, libavif)
 - [ ] Enable static linking in build.zig
 - [ ] Bundle everything into platform-specific wheels/npm packages
-- [ ] Installation: `uv pip install pyjamaz` or `npm install pyjamaz` works immediately
+- [ ] Installation: `uv pip install pyjamaz-optimizer` or `npm install pyjamaz` works immediately
 - [ ] No manual dependency installation required
 
 **Alternatives Considered**:
@@ -553,7 +566,7 @@
 
 **Success Criteria (v1.0)**:
 
-- Users run `uv pip install pyjamaz` → works immediately
+- Users run `uv pip install pyjamaz-optimizer` → works immediately
 - Users run `npm install pyjamaz` → works immediately
 - No `brew install` prerequisites required
 - Platform-specific wheels/packages for macOS, Linux, Windows

@@ -141,6 +141,9 @@ pub fn build(b: *std.Build) void {
     test_integration_step.dependOn(&run_integration_tests.step);
 
     // Conformance testing
+    // Build option for enabling DSSIM in conformance tests
+    const enable_dssim = b.option(bool, "enable-dssim", "Enable DSSIM perceptual quality checks in conformance tests (slower but more thorough)") orelse false;
+
     const conformance_exe = b.addExecutable(.{
         .name = "conformance",
         .root_module = b.createModule(.{
@@ -150,6 +153,11 @@ pub fn build(b: *std.Build) void {
         }),
     });
     conformance_exe.root_module.addImport("fssimu2", fssimu2_module);
+
+    // Pass enable_dssim option to conformance runner
+    const options = b.addOptions();
+    options.addOption(bool, "enable_dssim", enable_dssim);
+    conformance_exe.root_module.addOptions("build_options", options);
 
     // Link C libraries for conformance tests
     conformance_exe.linkSystemLibrary("vips");
@@ -169,7 +177,7 @@ pub fn build(b: *std.Build) void {
     run_conformance.setEnvironmentVariable("VIPS_DISC_THRESHOLD", "0");
     run_conformance.setEnvironmentVariable("VIPS_NOVECTOR", "1");
 
-    const conformance_step = b.step("conformance", "Run conformance tests on testdata/");
+    const conformance_step = b.step("conformance", "Run conformance tests on testdata/ (use -Denable-dssim for quality checks)");
     conformance_step.dependOn(&run_conformance.step);
 
     // Benchmark executable (v0.2.0: Parallel optimization)

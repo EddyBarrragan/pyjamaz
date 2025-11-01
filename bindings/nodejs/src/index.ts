@@ -7,11 +7,9 @@
 
 import fs from 'fs';
 import { promises as fsPromises } from 'fs';
-import path from 'path';
 import * as bindings from './bindings';
 import {
   ImageFormat,
-  MetricType,
   OptimizeOptions,
   OptimizeResult,
   PyjamazError,

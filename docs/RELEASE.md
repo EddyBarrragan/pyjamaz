@@ -6,6 +6,14 @@
 
 This document outlines the human-intervention steps required to publish Pyjamaz to PyPI and npm after automated builds complete.
 
+**Version Management**: Throughout this document, version numbers are referenced using the `VERSION` environment variable. Set it once at the start of your release process:
+
+```bash
+export VERSION=1.0.0
+```
+
+This ensures consistency across all commands and makes it easy to update for different releases.
+
 ---
 
 ## Quick Reference: Build & Test Scripts
@@ -184,13 +192,13 @@ uv pip install --index-url https://test.pypi.org/simple/ pyjamaz
 twine upload dist/*
 
 # Verify installation
-uv pip install pyjamaz
+uv pip install pyjamaz-optimizer
 uv run python -c "import pyjamaz; print(pyjamaz.__version__)"
 ```
 
 ### 1.5 Create PyPI Release Notes
 
-Go to https://pypi.org/project/pyjamaz/ and add release notes:
+Go to https://pypi.org/project/pyjamaz-optimizer/ and add release notes:
 
 - Link to GitHub release
 - Highlight key features
@@ -253,7 +261,7 @@ cd bindings/nodejs
 npm install ./pyjamaz-1.0.0.tgz
 
 # Run basic smoke test
-node -e "const { version } = require('pyjamaz'); console.log('Version:', version())"
+node -e "import('pyjamaz').then(({ version }) => console.log('Version:', version()))"
 
 # ⭐ RECOMMENDED: Run comprehensive bundled package test
 npx ts-node examples/test-bundled-package.ts
@@ -305,17 +313,22 @@ npm uninstall pyjamaz
 First, publish under a test scope to verify the process:
 
 ```bash
+# Set version as environment variable
+export VERSION=1.0.1
+
 # Login to npm
 npm login
 
 # Publish platform-specific packages (test scope)
-cd npm-packages
-npm publish pyjamaz-darwin-x64-1.0.0.tgz --tag beta
-npm publish pyjamaz-darwin-arm64-1.0.0.tgz --tag beta
-npm publish pyjamaz-linux-x64-1.0.0.tgz --tag beta
+# Note: Adjust paths based on where your CI/CD places artifacts
+cd bindings/nodejs
+npm publish ./pyjamaz-${VERSION}.tgz --tag beta
 
-# Publish main package
-npm publish pyjamaz-1.0.0.tgz --tag beta
+# If you have platform-specific packages in a separate directory:
+# cd ../../npm-packages
+# npm publish pyjamaz-darwin-x64-${VERSION}.tgz --tag beta
+# npm publish pyjamaz-darwin-arm64-${VERSION}.tgz --tag beta
+# npm publish pyjamaz-linux-x64-${VERSION}.tgz --tag beta
 
 # Test installation
 npm install pyjamaz@beta
@@ -326,15 +339,23 @@ npm install pyjamaz@beta
 **⚠️ WARNING**: This step is irreversible. Once published, versions cannot be deleted.
 
 ```bash
-# Publish platform-specific packages
-npm publish pyjamaz-darwin-x64-1.0.0.tgz
-npm publish pyjamaz-darwin-arm64-1.0.0.tgz
-npm publish pyjamaz-linux-x64-1.0.0.tgz
+# Set version as environment variable
+export VERSION=1.0.1
+
+# Ensure you're in the correct directory
+cd bindings/nodejs
 
 # Publish main package
-npm publish pyjamaz-1.0.0.tgz
+npm publish ./pyjamaz-${VERSION}.tgz
 
-# Verify installation
+# If you have platform-specific packages in a separate directory:
+# cd ../../npm-packages
+# npm publish pyjamaz-darwin-x64-${VERSION}.tgz
+# npm publish pyjamaz-darwin-arm64-${VERSION}.tgz
+# npm publish pyjamaz-linux-x64-${VERSION}.tgz
+
+# Verify installation (from project root or any directory)
+cd ../..
 npm install pyjamaz
 node -e "const pyjamaz = require('pyjamaz'); console.log(pyjamaz.version)"
 ```
@@ -344,8 +365,11 @@ node -e "const pyjamaz = require('pyjamaz'); console.log(pyjamaz.version)"
 Set appropriate dist-tags:
 
 ```bash
+# Set version as environment variable (if not already set)
+export VERSION=1.0.0
+
 # Mark as latest stable release
-npm dist-tag add pyjamaz@1.0.0 latest
+npm dist-tag add pyjamaz@${VERSION} latest
 
 # Verify tags
 npm dist-tag ls pyjamaz
@@ -358,19 +382,22 @@ npm dist-tag ls pyjamaz
 ### 3.1 Create Git Tag
 
 ```bash
+# Set version as environment variable (if not already set)
+export VERSION=1.0.0
+
 # Create annotated tag
-git tag -a v1.0.0 -m "Release 1.0.0 - Standalone Distribution"
+git tag -a v${VERSION} -m "Release ${VERSION} - Standalone Distribution"
 
 # Push tag to remote
-git push origin v1.0.0
+git push origin v${VERSION}
 ```
 
 ### 3.2 Create GitHub Release
 
 Go to https://github.com/yourusername/pyjamaz/releases/new and:
 
-1. **Tag**: Select `v1.0.0`
-2. **Title**: `v1.0.0 - Standalone Distribution`
+1. **Tag**: Select `v${VERSION}` (e.g., `v1.0.0`)
+2. **Title**: `v${VERSION} - Standalone Distribution`
 3. **Description**: Include the following sections:
 
 ````markdown
@@ -380,7 +407,7 @@ After [X weeks] of development, Pyjamaz is now production-ready with standalone 
 
 ### ✨ Highlights
 
-- **Zero Prerequisites**: `uv pip install pyjamaz` or `npm install pyjamaz` works immediately
+- **Zero Prerequisites**: `uv pip install pyjamaz-optimizer` or `npm install pyjamaz` works immediately
 - **Native Performance**: 2-5x faster with native codecs (JPEG, PNG, WebP, AVIF)
 - **Self-Contained**: Static linking, no runtime dependencies
 - **Multi-Platform**: macOS (Intel/ARM), Linux x86_64
@@ -390,7 +417,7 @@ After [X weeks] of development, Pyjamaz is now production-ready with standalone 
 **Python**:
 
 ```bash
-uv pip install pyjamaz
+uv pip install pyjamaz-optimizer
 ```
 ````
 
@@ -650,20 +677,27 @@ If catastrophic issues are discovered immediately after release:
 ⚠️ **npm allows unpublishing only within 72 hours**:
 
 ```bash
+# Set version as environment variable
+export VERSION=1.0.0
+
 # Unpublish (only works within 72 hours)
-npm unpublish pyjamaz@1.0.0
+npm unpublish pyjamaz@${VERSION}
 
 # Deprecate (if too late to unpublish)
-npm deprecate pyjamaz@1.0.0 "Critical bug, use 1.0.1 instead"
+npm deprecate pyjamaz@${VERSION} "Critical bug, use 1.0.1 instead"
 ```
 
 ### GitHub Release Rollback
 
 1. Mark release as "Pre-release" or delete it
 2. Delete git tag locally and remotely:
+
    ```bash
-   git tag -d v1.0.0
-   git push origin :refs/tags/v1.0.0
+   # Set version as environment variable
+   export VERSION=1.0.0
+
+   git tag -d v${VERSION}
+   git push origin :refs/tags/v${VERSION}
    ```
 
 ---
@@ -769,9 +803,12 @@ tar -tzf pyjamaz-*.tgz | grep native/
 ### CI/CD Trigger
 
 ```bash
+# Set version as environment variable
+export VERSION=1.0.0
+
 # Create and push tag
-git tag -a v1.0.0 -m "Release 1.0.0 - Standalone Distribution"
-git push origin v1.0.0
+git tag -a v${VERSION} -m "Release ${VERSION} - Standalone Distribution"
+git push origin v${VERSION}
 
 # Monitor builds at:
 # https://github.com/yourusername/pyjamaz/actions

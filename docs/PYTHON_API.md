@@ -24,6 +24,12 @@ Version: 1.0.0
 
 ## Installation
 
+### From PyPI (Recommended)
+
+```bash
+uv pip install pyjamaz-optimizer
+```
+
 ### From Source
 
 ```bash
@@ -608,6 +614,10 @@ result = pyjamaz.optimize_image(
 **Solution**:
 
 ```bash
+# Install from PyPI
+uv pip install pyjamaz-optimizer
+
+# Or install from source
 cd bindings/python
 uv pip install -e .
 ```
