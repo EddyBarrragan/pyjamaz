@@ -61,6 +61,6 @@ docs/api/
 *.temp
 .cache/
 
-# Test temporary directories (if cleanup fails)
-# Pattern: 16 random chars (from testing.tmpDir)
-[a-zA-Z0-9_-][a-zA-Z0-9_-][a-zA-Z0-9_-][a-zA-Z0-9_-][a-zA-Z0-9_-][a-zA-Z0-9_-][a-zA-Z0-9_-][a-zA-Z0-9_-][a-zA-Z0-9_-][a-zA-Z0-9_-][a-zA-Z0-9_-][a-zA-Z0-9_-][a-zA-Z0-9_-][a-zA-Z0-9_-][a-zA-Z0-9_-][a-zA-Z0-9_-]/
+# Documentation
+CLAUDE.md
+.claude/
