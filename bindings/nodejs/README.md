@@ -36,7 +36,7 @@ npm run build
 ### From npm (Coming Soon)
 
 ```bash
-npm install @pyjamaz/nodejs
+npm install pyjamaz
 ```
 
 ## Quick Start
@@ -44,7 +44,7 @@ npm install @pyjamaz/nodejs
 ### TypeScript
 
 ```typescript
-import * as pyjamaz from '@pyjamaz/nodejs';
+import pyjamaz from 'pyjamaz';
 
 // Optimize with size constraint
 const result = await pyjamaz.optimizeImage('input.jpg', {
@@ -60,7 +60,7 @@ if (result.passed) {
 ### JavaScript
 
 ```javascript
-const pyjamaz = require('@pyjamaz/nodejs');
+const pyjamaz = require('pyjamaz');
 
 // Optimize with size constraint
 const result = await pyjamaz.optimizeImage('input.jpg', {
@@ -325,7 +325,7 @@ console.log(`Second run: ${time2}ms (${(time1 / time2).toFixed(1)}x faster)`);
 ```typescript
 import express from 'express';
 import multer from 'multer';
-import * as pyjamaz from '@pyjamaz/nodejs';
+import pyjamaz from 'pyjamaz';
 
 const app = express();
 const upload = multer();
@@ -360,7 +360,7 @@ app.listen(3000);
 ```typescript
 import Fastify from 'fastify';
 import multipart from '@fastify/multipart';
-import * as pyjamaz from '@pyjamaz/nodejs';
+import pyjamaz from 'pyjamaz';
 
 const fastify = Fastify();
 await fastify.register(multipart);
@@ -471,10 +471,10 @@ Then use correct import:
 
 ```typescript
 // TypeScript/ESM
-import * as pyjamaz from '@pyjamaz/nodejs';
+import pyjamaz from 'pyjamaz';
 
 // CommonJS
-const pyjamaz = require('@pyjamaz/nodejs');
+const pyjamaz = require('pyjamaz');
 ```
 
 ## License

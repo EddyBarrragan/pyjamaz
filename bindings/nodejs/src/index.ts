@@ -22,7 +22,7 @@ import {
  *
  * @example
  * ```typescript
- * import { getVersion } from '@pyjamaz/nodejs';
+ * import { getVersion } from 'pyjamaz';
  *
  * console.log(`Pyjamaz version: ${getVersion()}`);
  * ```

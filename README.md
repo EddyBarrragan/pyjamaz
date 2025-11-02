@@ -42,6 +42,12 @@
 
 ### Installation
 
+**From npm** (Node.js):
+
+```bash
+npm install pyjamaz
+```
+
 **From Homebrew** (coming soon):
 
 ```bash
@@ -134,7 +140,7 @@ uv run python examples/batch.py
 Pyjamaz can also be used from Node.js with full TypeScript support:
 
 ```typescript
-import * as pyjamaz from "@pyjamaz/nodejs";
+import pyjamaz from "pyjamaz";
 
 // Optimize with size constraint
 const result = await pyjamaz.optimizeImage("input.jpg", {
