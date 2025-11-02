@@ -69,7 +69,7 @@ zig build
 ./zig-out/bin/pyjamaz input.jpg -o output.jpg --max-bytes 100000
 ```
 
-### Basic Usage
+### Basic CLI Usage
 
 ```bash
 # Optimize single image with size constraint
@@ -91,6 +91,47 @@ pyjamaz input.jpg --max-bytes 100000
 # Custom cache settings
 pyjamaz input.jpg --cache-dir /tmp/cache --cache-max-size 2147483648
 ```
+
+### Node.js Bindings Usage
+
+Pyjamaz can also be used from Node.js with full TypeScript support:
+
+```typescript
+import pyjamaz from "pyjamaz";
+
+// Optimize with size constraint
+const result = await pyjamaz.optimizeImage("input.jpg", {
+  maxBytes: 100_000,
+});
+
+if (result.passed) {
+  await result.save("output.jpg");
+  console.log(`Optimized to ${result.size} bytes`);
+}
+```
+
+**Features**:
+
+- TypeScript-first design with full type safety
+- Both sync and async APIs
+- Automatic memory management
+- Full caching support (15-20x speedup)
+- Express/Fastify integration examples
+
+**Installation**:
+
+```bash
+# Install Node.js bindings
+cd bindings/nodejs
+npm install
+npm run build
+
+# Run examples
+npm run build && node dist/examples/basic.js
+npx ts-node examples/basic.ts
+```
+
+**Complete documentation**: See [Node.js API Reference](docs/NODEJS_API.md) for detailed usage, examples, and integration guides.
 
 ### Python Bindings Usage [Coming Soon]
 
@@ -134,47 +175,6 @@ uv run python examples/batch.py
 ```
 
 **Complete documentation**: See [Python API Reference](docs/PYTHON_API.md) for detailed usage, examples, and integration guides.
-
-### Node.js Bindings Usage
-
-Pyjamaz can also be used from Node.js with full TypeScript support:
-
-```typescript
-import pyjamaz from "pyjamaz";
-
-// Optimize with size constraint
-const result = await pyjamaz.optimizeImage("input.jpg", {
-  maxBytes: 100_000,
-});
-
-if (result.passed) {
-  await result.save("output.jpg");
-  console.log(`Optimized to ${result.size} bytes`);
-}
-```
-
-**Features**:
-
-- TypeScript-first design with full type safety
-- Both sync and async APIs
-- Automatic memory management
-- Full caching support (15-20x speedup)
-- Express/Fastify integration examples
-
-**Installation**:
-
-```bash
-# Install Node.js bindings
-cd bindings/nodejs
-npm install
-npm run build
-
-# Run examples
-npm run build && node dist/examples/basic.js
-npx ts-node examples/basic.ts
-```
-
-**Complete documentation**: See [Node.js API Reference](docs/NODEJS_API.md) for detailed usage, examples, and integration guides.
 
 ---
 
